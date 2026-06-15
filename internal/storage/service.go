@@ -5,9 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
-	"os"
-	"path"
-	"syscall"
 	"time"
 )
 
@@ -16,16 +13,14 @@ type Config struct {
 }
 
 type StorageService struct {
-	log    *slog.Logger
 	config Config
 	repo   *StorageRepository
 	cache  *StorageCache
 }
 
-func NewStorageService(repo *StorageRepository, cache *StorageCache, log *slog.Logger) *StorageService {
+func NewStorageService(repo *StorageRepository) *StorageService {
 	return &StorageService{
-		cache: cache,
-		log:   log,
+		cache: NewStorageCache(),
 		repo:  repo,
 	}
 }
@@ -66,40 +61,22 @@ func (ss *StorageService) Get(ctx context.Context, basePath string) (*Storage, e
 	return &storage, nil
 }
 
-// Return fullPath, or empty string if there has a problem
-func (ss *StorageService) GetFilepath(s *Storage) string {
-	log := ss.getLog("GetFilepath").With(slog.String("bp", s.BasePath))
+func (ss *StorageService) CreateFile(storage *Storage, write bool) *StorageFile {
+	return NewStorageFile(storage, ss.config.StoragePath, write)
+}
 
-	basePath := s.BasePath
-	ext := path.Ext(basePath)
+func (ss *StorageService) IncreaseDownloadCount(storage *Storage) *Storage {
+	return ss.cache.Update(storage.BasePath, func(storage *Storage) *Storage {
+		storage.IncreaseDownloadCount()
+		return storage
+	})
+}
 
-	if ext == "" {
-		basePath = basePath + ".file"
-	}
-
-	filepath := path.Join(ss.config.StoragePath, basePath)
-
-	if s.IsNew == false {
-		return filepath
-	}
-
-	dir := path.Dir(filepath)
-	err := os.MkdirAll(dir, 0775)
-	if errors.Is(err, syscall.ENOTDIR) {
-		log.Warn("Is not dir: " + dir)
-		err := os.Remove(dir)
-		if err != nil {
-			log.Warn("Cannot remove dir: " + dir)
-			return ""
-		}
-		err = os.MkdirAll(dir, os.ModeDir)
-		if err != nil {
-			log.Warn("Cannot mkdir dir: " + dir)
-			return ""
-		}
-	}
-
-	return filepath
+func (ss *StorageService) ChangeStatus(storage *Storage, status StorageStatus) *Storage {
+	return ss.cache.Update(storage.BasePath, func(storage *Storage) *Storage {
+		storage.SetStatus(status)
+		return storage
+	})
 }
 
 func (ss *StorageService) Save(s Storage) {
@@ -118,5 +95,5 @@ func (ss *StorageService) Save(s Storage) {
 
 func (ss *StorageService) getLog(name string) *slog.Logger {
 	op := "StorageService." + name
-	return ss.log.With(slog.String("op", op))
+	return slog.Default().With(slog.String("op", op))
 }

@@ -1,15 +1,17 @@
 package storage
 
-import "time"
+import (
+	"time"
+)
 
-type StorageFileStatus string
+type StorageStatus string
 
 const (
-	StorageFileStatusIdle    StorageFileStatus = "idle"
-	StorageFileStatusPending StorageFileStatus = "pending"
-	StorageFileStatusSuccess StorageFileStatus = "success"
-	StorageFileStatusError   StorageFileStatus = "error"
-	StorageFileStatusSkip    StorageFileStatus = "skip"
+	StorageStatusIdle    StorageStatus = "idle"
+	StorageStatusPending StorageStatus = "pending"
+	StorageStatusSuccess StorageStatus = "success"
+	StorageStatusError   StorageStatus = "error"
+	StorageStatusSkip    StorageStatus = "skip"
 )
 
 type Storage struct {
@@ -18,7 +20,7 @@ type Storage struct {
 	UpdatedAt     time.Time
 	DownloadCount uint16
 	TargetId      uint16
-	Status        StorageFileStatus
+	Status        StorageStatus
 	IsNew         bool
 	// service       *StorageService
 }
@@ -32,17 +34,17 @@ func (s *Storage) IncreaseDownloadCount() {
 	s.UpdatedAt = time.Now()
 }
 
-func (s *Storage) GetStatus() StorageFileStatus {
+func (s *Storage) GetStatus() StorageStatus {
 	return s.Status
 }
 
-func (s *Storage) SetStatus(status StorageFileStatus) {
+func (s *Storage) SetStatus(status StorageStatus) {
 	s.Status = status
 	s.UpdatedAt = time.Now()
 }
 
 func (s *Storage) IsSuccess() bool {
-	return s.Status == StorageFileStatusSuccess
+	return s.Status == StorageStatusSuccess
 }
 
 // func (s *Storage) SetService(ss *StorageService) {

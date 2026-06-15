@@ -23,31 +23,22 @@ func (this *StorageCache) Get(key string) (Storage, bool) {
 func (this *StorageCache) Set(key string, storage Storage) {
 	this.mu.Lock()
 	defer this.mu.Unlock()
+	_, ok := this.data[key]
+	if ok {
+		return
+	}
 	this.data[key] = storage
 }
 
-func (this *StorageCache) IncreaseDownloadCount(key string) {
-	this.update(key, func(s *Storage) *Storage {
-		s.IncreaseDownloadCount()
-		return s
-	})
-}
-
-func (this *StorageCache) ChangeStatus(key string, status StorageFileStatus) {
-	this.update(key, func(s *Storage) *Storage {
-		s.SetStatus(status)
-		return s
-	})
-}
-
-func (this *StorageCache) update(key string, updateFn func(s *Storage) *Storage) {
+func (this *StorageCache) Update(key string, updateFn func(s *Storage) *Storage) *Storage {
 	this.mu.Lock()
 	defer this.mu.Unlock()
 
 	old, ok := this.data[key]
 	if !ok {
-		return
+		return nil
 	}
 	new := updateFn(&old)
 	this.data[key] = *new
+	return new
 }
