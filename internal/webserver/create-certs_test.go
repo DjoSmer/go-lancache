@@ -1,7 +1,6 @@
-package lancache_test
+package webserver_test
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -13,15 +12,10 @@ import (
 	"strings"
 	"testing"
 
-	"go-lancache/internal/lancache"
-)
+	"go-lancache/internal/webserver"
 
-func orFatal(t *testing.T, msg string, err error) {
-	t.Helper()
-	if err != nil {
-		t.Fatal(msg, err)
-	}
-}
+	"github.com/stretchr/testify/assert"
+)
 
 type ConstantHandler string
 
@@ -32,31 +26,31 @@ func (h ConstantHandler) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 func testSignerX509(t *testing.T, ca tls.Certificate) {
 	t.Helper()
 	fmt.Println(ca.Leaf.Subject)
-	cert, err := lancache.CreateCert(ca, "example.com")
-	orFatal(t, "CreateCert", err)
+	cert, err := webserver.CreateCert(ca, "example.com")
+	assert.NoError(t, err)
 
 	cert.Leaf, err = x509.ParseCertificate(cert.Certificate[0])
-	orFatal(t, "ParseCertificate", err)
+	assert.NoError(t, err)
 
 	certPool := x509.NewCertPool()
 	certPool.AddCert(ca.Leaf)
-	orFatal(t, "VerifyHostname", cert.Leaf.VerifyHostname("example.com"))
-	orFatal(t, "CheckSignatureFrom", cert.Leaf.CheckSignatureFrom(ca.Leaf))
+	assert.NoError(t, cert.Leaf.VerifyHostname("example.com"))
+	assert.NoError(t, cert.Leaf.CheckSignatureFrom(ca.Leaf))
 
 	_, err = cert.Leaf.Verify(x509.VerifyOptions{
 		DNSName: "example.com",
 		Roots:   certPool,
 	})
-	orFatal(t, "Verify", err)
+	assert.NoError(t, err)
 }
 
 func testSignerTLS(t *testing.T, ca tls.Certificate) {
 	t.Helper()
-	cert, err := lancache.CreateCert(ca, "localhost")
-	orFatal(t, "CreateCert", err)
+	cert, err := webserver.CreateCert(ca, "localhost")
+	assert.NoError(t, err)
 
 	cert.Leaf, err = x509.ParseCertificate(cert.Certificate[0])
-	orFatal(t, "ParseCertificate", err)
+	assert.NoError(t, err)
 
 	expected := "key verifies with Go"
 	server := httptest.NewUnstartedServer(ConstantHandler(expected))
@@ -70,7 +64,7 @@ func testSignerTLS(t *testing.T, ca tls.Certificate) {
 
 	asLocalhost := strings.ReplaceAll(server.URL, "127.0.0.1", "localhost")
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, asLocalhost, nil)
-	orFatal(t, "NewRequest", err)
+	assert.NoError(t, err)
 
 	certPool := x509.NewCertPool()
 	certPool.AddCert(ca.Leaf)
@@ -78,13 +72,11 @@ func testSignerTLS(t *testing.T, ca tls.Certificate) {
 		TLSClientConfig: &tls.Config{RootCAs: certPool},
 	}
 	resp, err := tr.RoundTrip(req)
-	orFatal(t, "RoundTrip", err)
+	assert.NoError(t, err)
 
 	txt, err := io.ReadAll(resp.Body)
-	orFatal(t, "io.ReadAll", err)
-	if string(txt) != expected {
-		t.Errorf("Expected '%s' got '%s'", expected, string(txt))
-	}
+	assert.NoError(t, err)
+	assert.Equal(t, string(txt), expected)
 }
 
 func TestCreateCa(t *testing.T) {
@@ -92,33 +84,31 @@ func TestCreateCa(t *testing.T) {
 	certFile := filepath.Join(tmpDir, "go-lancache-test-ca.pem")
 	keyFile := filepath.Join(tmpDir, "go-lancache-test-key.pem")
 
-	ca1, err := lancache.CreateCa(certFile, keyFile)
-	orFatal(t, "CreateCa", err)
+	ca1, err := webserver.CreateCa(certFile, keyFile)
+	assert.NoError(t, err)
 
 	ca2, err := tls.LoadX509KeyPair(certFile, keyFile)
-	orFatal(t, "LoadX509KeyPair", err)
+	assert.NoError(t, err)
 
-	if !bytes.Equal(ca1.Certificate[0], ca2.Certificate[0]) {
-		t.Error("CreateCa != LoadX509KeyPair")
-	}
+	assert.Equal(t, ca1.Certificate[0], ca2.Certificate[0])
 }
 
 func TestCreateCertTls(t *testing.T) {
-	ca, _ := lancache.CreateCa("", "")
+	ca, _ := webserver.CreateCa("", "")
 	testSignerTLS(t, ca)
 }
 
 func TestCreateCertX509(t *testing.T) {
-	ca, _ := lancache.CreateCa("", "")
+	ca, _ := webserver.CreateCa("", "")
 	testSignerX509(t, ca)
 }
 
 func BenchmarkSignRsa(b *testing.B) {
-	ca, _ := lancache.CreateCa("", "")
+	ca, _ := webserver.CreateCa("", "")
 	var c *tls.Certificate
 	var err error
 	for b.Loop() {
-		c, err = lancache.CreateCert(ca, "example.com")
+		c, err = webserver.CreateCert(ca, "example.com")
 	}
 	_ = c
 	_ = err

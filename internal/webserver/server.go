@@ -1,4 +1,4 @@
-package lancache
+package webserver
 
 import (
 	"context"
@@ -15,21 +15,19 @@ import (
 type Server struct {
 	certs   Certs
 	config  config.Config
-	log     *slog.Logger
 	servers []*http.Server
 }
 
-func NewServer(config config.Config, log *slog.Logger) *Server {
+func NewServer(config config.Config) *Server {
 	return &Server{
-		log:     log,
 		config:  config,
-		certs:   *NewCerts(config.Ca, log),
+		certs:   *NewCerts(config.Ca),
 		servers: make([]*http.Server, 2),
 	}
 }
 
 func (s *Server) Run(ctx context.Context, handler http.Handler) {
-	log := s.log.With(slog.String("op", "Server.Run"))
+	log := s.log("Run").With(slog.String("op", "Server.Run"))
 
 	s.servers[0] = &http.Server{
 		Addr:    s.config.ServerAddress.Http,
@@ -37,7 +35,7 @@ func (s *Server) Run(ctx context.Context, handler http.Handler) {
 	}
 
 	tlsConfig := &tls.Config{
-		InsecureSkipVerify: false,
+		InsecureSkipVerify: true,
 		GetCertificate:     s.certs.GetCertificate,
 	}
 
@@ -78,4 +76,9 @@ func (s *Server) isError(err error) {
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		panic(err)
 	}
+}
+
+func (s *Server) log(name string) *slog.Logger {
+	op := "WebServer." + name
+	return slog.Default().With(slog.String("op", op))
 }

@@ -1,4 +1,4 @@
-package lancache_test
+package webserver_test
 
 import (
 	"context"
@@ -11,84 +11,61 @@ import (
 	"testing"
 
 	"go-lancache/internal/config"
-	"go-lancache/internal/lancache"
+	"go-lancache/internal/webserver"
+
+	"github.com/stretchr/testify/assert"
 )
 
 var cfg config.Config
-var log *slog.Logger
+var webServer *webserver.Server
 
-type Suite struct {
-	Server *lancache.Server
-}
-
-func New() *Suite {
-	srv := lancache.NewServer(cfg, log)
-	suite := &Suite{
-		Server: srv,
-	}
-
-	srv.Run(context.Background(), suite)
-	return suite
-}
-
-func (s *Suite) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
-	_, _ = io.WriteString(w, "hello")
-}
-
-func test_example_com(t *testing.T) *Suite {
+func test_example_com(t *testing.T) {
 	t.Helper()
-	s := New()
 
 	serverName := "example.com"
 	conn, err := tls.Dial("tcp", cfg.ServerAddress.Https, &tls.Config{
 		InsecureSkipVerify: true,
 		ServerName:         serverName,
 	})
-	orFatal(t, "Tls.Dial", err)
+	assert.NoError(t, err)
 	defer conn.Close()
 
 	state := conn.ConnectionState()
 	cert := state.PeerCertificates[0]
 
-	if cert.Subject.CommonName != serverName {
-		t.Errorf("%s != %s", cert.Subject.CommonName, serverName)
-	}
-
-	if len(cert.DNSNames) == 0 || cert.DNSNames[0] != serverName {
-		t.Errorf("DNSNames are empty or DNSNames[0] != %s", serverName)
-	}
-
-	return s
+	assert.Equal(t, cert.Subject.CommonName, serverName)
+	assert.Len(t, cert.DNSNames, 2)
+	assert.Equal(t, cert.DNSNames[0], serverName)
 }
 
 func TestSNI_example_com(t *testing.T) {
-	s := test_example_com(t)
-	defer s.Server.Close()
+	test_example_com(t)
 }
 
 func TestSNI_sub_example_com(t *testing.T) {
-	s := test_example_com(t)
-	defer s.Server.Close()
+	test_example_com(t)
 
 	parentServerName := "example.com"
 	serverName := "sub." + parentServerName
-	conn, err := tls.Dial("tcp", "127.0.0.1:4443", &tls.Config{
+	conn, err := tls.Dial("tcp", cfg.ServerAddress.Https, &tls.Config{
 		InsecureSkipVerify: true,
 		ServerName:         serverName,
 	})
-	orFatal(t, "Tls.Dial", err)
+	assert.NoError(t, err)
 	defer conn.Close()
 
 	state := conn.ConnectionState()
-
 	cert := state.PeerCertificates[0]
 
-	if cert.Subject.CommonName != parentServerName {
-		t.Errorf("%s != %s", cert.Subject.CommonName, serverName)
-	}
+	assert.Equal(t, cert.Subject.CommonName, parentServerName)
 }
 
-func init() {
+func TestMain(m *testing.M) {
+	log := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{
+		Level: slog.LevelError,
+	}))
+	slog.SetDefault(log)
+
 	tmpDir := os.TempDir()
 	certFile := filepath.Join(tmpDir, "go-lancache-test-ca.pem")
 	keyFile := filepath.Join(tmpDir, "go-lancache-test-key.pem")
@@ -99,7 +76,12 @@ func init() {
 	cfg.Ca.Cert = certFile
 	cfg.Ca.Key = keyFile
 
-	log = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+	webServer = webserver.NewServer(cfg)
+	webServer.Run(context.Background(), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "hello")
 	}))
+
+	code := m.Run()
+	webServer.Close()
+	os.Exit(code)
 }

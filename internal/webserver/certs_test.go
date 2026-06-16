@@ -1,4 +1,4 @@
-package lancache_test
+package webserver_test
 
 import (
 	"crypto/tls"
@@ -9,16 +9,43 @@ import (
 	"testing"
 
 	"go-lancache/internal/config"
-	"go-lancache/internal/lancache"
+	"go-lancache/internal/webserver"
 
 	"github.com/brianvoe/gofakeit/v7"
+	"github.com/stretchr/testify/assert"
 )
 
 var caCfg config.CaConfig
-var certLog *slog.Logger
+
+func init() {
+	log := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{
+		Level: slog.LevelError,
+	}))
+
+	slog.SetDefault(log)
+
+	tmpDir := os.TempDir()
+	certFile := filepath.Join(tmpDir, "go-lancache-test-ca.pem")
+	keyFile := filepath.Join(tmpDir, "go-lancache-test-key.pem")
+
+	caCfg = config.CaConfig{
+		Cert: certFile,
+		Key:  keyFile,
+	}
+}
+
+func TestGetCertificate(t *testing.T) {
+	serverName := gofakeit.DomainName()
+	certs := webserver.NewCerts(caCfg)
+	cert, err := certs.GetCertificate(&tls.ClientHelloInfo{
+		ServerName: serverName,
+	})
+	assert.NoError(t, err)
+	assert.NoError(t, cert.Leaf.VerifyHostname(serverName))
+}
 
 func BenchmarkGetCertificate(b *testing.B) {
-	certs := lancache.NewCerts(caCfg, certLog)
+	certs := webserver.NewCerts(caCfg)
 
 	var c *tls.Certificate
 	var err error
@@ -29,17 +56,4 @@ func BenchmarkGetCertificate(b *testing.B) {
 	}
 	_ = c
 	_ = err
-}
-
-func init() {
-	tmpDir := os.TempDir()
-	certFile := filepath.Join(tmpDir, "go-lancache-test-ca.pem")
-	keyFile := filepath.Join(tmpDir, "go-lancache-test-key.pem")
-
-	caCfg = config.CaConfig{
-		Cert: certFile,
-		Key:  keyFile,
-	}
-
-	certLog = slog.New(slog.NewTextHandler(io.Discard, nil))
 }

@@ -1,4 +1,4 @@
-package lancache
+package webserver
 
 import (
 	"crypto/tls"
@@ -15,12 +15,12 @@ type Certs struct {
 	mu    sync.RWMutex
 	certs map[string]*tls.Certificate
 
-	ca  tls.Certificate
-	log *slog.Logger
+	ca tls.Certificate
 }
 
-func NewCerts(config config.CaConfig, log *slog.Logger) *Certs {
+func NewCerts(config config.CaConfig) *Certs {
 	var ca tls.Certificate
+	log := slog.Default().With(slog.String("op", "Certs.NewCerts"))
 
 	_, err := os.Stat(config.Key)
 	if err == nil {
@@ -44,14 +44,13 @@ func NewCerts(config config.CaConfig, log *slog.Logger) *Certs {
 
 	return &Certs{
 		ca:    ca,
-		log:   log,
 		certs: make(map[string]*tls.Certificate),
 	}
 }
 
 func (c *Certs) GetCertificate(chi *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	hostname := chi.ServerName
-	log := c.getLog("GetCertificate").With(slog.String("hostname", hostname))
+	log := c.log("GetCertificate").With(slog.String("hostname", hostname))
 
 	cert, ok := c.Get(hostname)
 	if ok {
@@ -85,7 +84,7 @@ func (c *Certs) Get(hostname string) (*tls.Certificate, bool) {
 }
 
 func (c *Certs) CreateCert(hostname string) (*tls.Certificate, error) {
-	log := c.getLog("CreateCert").With(slog.String("hostname", hostname))
+	log := c.log("CreateCert").With(slog.String("hostname", hostname))
 
 	cert, err := CreateCert(c.ca, hostname)
 	if err != nil {
@@ -110,7 +109,7 @@ func (c *Certs) removeTopLevel(hostname string) (string, bool) {
 	return strings.Join(parts[1:], "."), true
 }
 
-func (c *Certs) getLog(name string) *slog.Logger {
+func (c *Certs) log(name string) *slog.Logger {
 	op := "Certs." + name
-	return c.log.With(slog.String("op", op))
+	return slog.Default().With(slog.String("op", op))
 }

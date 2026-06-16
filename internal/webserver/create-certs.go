@@ -1,4 +1,4 @@
-package lancache
+package webserver
 
 import (
 	"crypto"
@@ -160,12 +160,12 @@ func exportToPem(filepath, pemType string, bytes []byte) error {
 		return fmt.Errorf("Dir %s: %w", dir, err)
 	}
 
-	w, err := os.OpenFile(filepath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0640)
+	f, err := os.OpenFile(filepath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0640)
 	if err != nil {
 		return fmt.Errorf("Open file %s: %w", filepath, err)
 	}
 
-	err = pem.Encode(w, &pem.Block{
+	err = pem.Encode(f, &pem.Block{
 		Type:  pemType,
 		Bytes: bytes,
 	})
@@ -173,7 +173,7 @@ func exportToPem(filepath, pemType string, bytes []byte) error {
 		return fmt.Errorf("Pem Encode %w", err)
 	}
 
-	err = w.Close()
+	err = f.Close()
 	if err != nil {
 		return fmt.Errorf("Close file %s: %w", filepath, err)
 	}
