@@ -19,7 +19,7 @@ func NewStorageRepository(db *sql.DB) *StorageRepository {
 func (sr *StorageRepository) Get(ctx context.Context, basePath string) (Storage, error) {
 	var s Storage
 
-	row := sr.db.QueryRowContext(ctx, "SELECT * FROM storage WHERE basePath = ?", basePath)
+	row := sr.db.QueryRowContext(ctx, `SELECT "basePath", "createdAt", "updatedAt", "downloadCount", "targetId", status FROM storage WHERE basePath = ?`, basePath)
 	err := row.Scan(&s.BasePath, &s.CreatedAt, &s.UpdatedAt, &s.DownloadCount, &s.TargetId, &s.Status)
 	if err != nil {
 		// if err == sql.ErrNoRows {
@@ -27,6 +27,8 @@ func (sr *StorageRepository) Get(ctx context.Context, basePath string) (Storage,
 		// }
 		return s, err
 	}
+
+	s.IsNew = false
 	return s, nil
 }
 
@@ -42,8 +44,8 @@ func (sr *StorageRepository) Save(storage Storage) (Storage, error) {
 	if err != nil {
 		return storage, err
 	}
-	storage.IsNew = false
 
+	storage.IsNew = false
 	return storage, nil
 }
 

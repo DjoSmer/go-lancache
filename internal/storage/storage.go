@@ -18,8 +18,8 @@ type Storage struct {
 	BasePath      string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
-	DownloadCount uint16
-	TargetId      uint16
+	DownloadCount int
+	TargetId      int
 	Status        StorageStatus
 	IsNew         bool
 	// service       *StorageService
@@ -45,6 +45,10 @@ func (s *Storage) SetStatus(status StorageStatus) {
 
 func (s *Storage) IsSuccess() bool {
 	return s.Status == StorageStatusSuccess
+}
+
+func (s *Storage) IsAvailable() bool {
+	return s.Status == StorageStatusIdle || s.Status == StorageStatusError
 }
 
 // func (s *Storage) SetService(ss *StorageService) {

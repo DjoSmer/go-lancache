@@ -23,10 +23,6 @@ func (this *StorageCache) Get(key string) (Storage, bool) {
 func (this *StorageCache) Set(key string, storage Storage) {
 	this.mu.Lock()
 	defer this.mu.Unlock()
-	_, ok := this.data[key]
-	if ok {
-		return
-	}
 	this.data[key] = storage
 }
 
@@ -34,11 +30,16 @@ func (this *StorageCache) Update(key string, updateFn func(s *Storage) *Storage)
 	this.mu.Lock()
 	defer this.mu.Unlock()
 
-	old, ok := this.data[key]
+	storage, ok := this.data[key]
 	if !ok {
 		return nil
 	}
-	new := updateFn(&old)
-	this.data[key] = *new
-	return new
+
+	result := updateFn(&storage)
+	if result != nil {
+		this.data[key] = *result
+		return result
+	}
+
+	return &storage
 }

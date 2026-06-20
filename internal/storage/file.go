@@ -2,18 +2,25 @@ package storage
 
 import (
 	"errors"
+	"io"
 	"log/slog"
 	"os"
 	"path"
 	"syscall"
 )
 
-type StorageFile struct {
-	fs      *os.File
-	isWrite bool
+type StorageFile interface {
+	io.ReadWriteCloser
+	Remove() error
 }
 
-func NewStorageFile(s *Storage, storagePath string, write bool) *StorageFile {
+type storageFile struct {
+	fs       *os.File
+	isWrite  bool
+	filepath string
+}
+
+func NewStorageFile(s *Storage, storagePath string, write bool) *storageFile {
 	op := "StorageFile"
 	log := slog.Default().With(slog.String("op", op))
 
@@ -56,22 +63,36 @@ func NewStorageFile(s *Storage, storagePath string, write bool) *StorageFile {
 		return nil
 	}
 
-	return &StorageFile{
-		fs:      fs,
-		isWrite: write,
+	return &storageFile{
+		fs:       fs,
+		isWrite:  write,
+		filepath: filepath,
 	}
 }
 
-func (this *StorageFile) Read(b []byte) (int, error) {
-	n, err := this.fs.Read(b)
+func (f *storageFile) Read(b []byte) (int, error) {
+	n, err := f.fs.Read(b)
 	return n, err
 }
 
-func (this *StorageFile) Write(b []byte) (int, error) {
-	n, err := this.fs.Write(b)
+func (f *storageFile) Write(b []byte) (int, error) {
+	n, err := f.fs.Write(b)
 	return n, err
 }
 
-func (this *StorageFile) Close(err error) {
-	this.fs.Close()
+func (f *storageFile) Close() error {
+	if f.fs == nil {
+		return nil
+	}
+
+	err := f.fs.Close()
+	if err == nil {
+		f.fs = nil
+	}
+
+	return err
+}
+
+func (f *storageFile) Remove() error {
+	return os.Remove(f.filepath)
 }

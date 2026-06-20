@@ -18,15 +18,15 @@ type StorageService struct {
 	cache  *StorageCache
 }
 
-func NewStorageService(repo *StorageRepository) *StorageService {
+func NewStorageService(repo *StorageRepository, cache *StorageCache) *StorageService {
 	return &StorageService{
-		cache: NewStorageCache(),
+		cache: cache,
 		repo:  repo,
 	}
 }
 
-func (ss *StorageService) Create(basePath string, targetId uint16) *Storage {
-	log := ss.getLog("Create")
+func (ss *StorageService) Create(basePath string, targetId int) *Storage {
+	log := ss.log("Create")
 
 	storage := &Storage{
 		BasePath:      basePath,
@@ -35,17 +35,20 @@ func (ss *StorageService) Create(basePath string, targetId uint16) *Storage {
 		DownloadCount: 0,
 		TargetId:      targetId,
 		IsNew:         true,
+		Status:        StorageStatusIdle,
 	}
 
-	log.Info("Create new storage: " + basePath)
+	log.Debug("Create new storage: " + basePath)
 	ss.cache.Set(basePath, *storage)
 	return storage
 }
 
 func (ss *StorageService) Get(ctx context.Context, basePath string) (*Storage, error) {
-	log := ss.getLog("Create")
+	log := ss.log("Get")
+
 	storage, ok := ss.cache.Get(basePath)
 	if ok {
+		log.Debug("Get storage from cache: " + basePath)
 		return &storage, nil
 	}
 
@@ -57,11 +60,12 @@ func (ss *StorageService) Get(ctx context.Context, basePath string) (*Storage, e
 		return nil, err
 	}
 
+	log.Debug("Get storage from repo: " + basePath)
 	ss.cache.Set(basePath, storage)
 	return &storage, nil
 }
 
-func (ss *StorageService) CreateFile(storage *Storage, write bool) *StorageFile {
+func (ss *StorageService) CreateFile(storage *Storage, write bool) StorageFile {
 	return NewStorageFile(storage, ss.config.StoragePath, write)
 }
 
@@ -72,28 +76,48 @@ func (ss *StorageService) IncreaseDownloadCount(storage *Storage) *Storage {
 	})
 }
 
-func (ss *StorageService) ChangeStatus(storage *Storage, status StorageStatus) *Storage {
-	return ss.cache.Update(storage.BasePath, func(storage *Storage) *Storage {
-		storage.SetStatus(status)
+func (ss *StorageService) Lock(storage *Storage) (*Storage, bool) {
+	result := true
+	storage = ss.cache.Update(storage.BasePath, func(storage *Storage) *Storage {
+		if storage.IsAvailable() {
+			storage.SetStatus(StorageStatusPending)
+			return storage
+		}
+		result = false
+		storage.SetStatus(StorageStatusSkip)
+		return nil
+	})
+
+	return storage, result
+}
+
+func (ss *StorageService) Release(storage *Storage, err error) *Storage {
+	storage = ss.cache.Update(storage.BasePath, func(storage *Storage) *Storage {
+		if err == nil {
+			storage.SetStatus(StorageStatusSuccess)
+		} else {
+			storage.SetStatus(StorageStatusError)
+		}
 		return storage
 	})
+
+	ss.Save(*storage)
+	return storage
 }
 
-func (ss *StorageService) Save(s Storage) {
-	s, err := ss.repo.Save(s)
-	if err != nil {
+func (ss *StorageService) Save(storage Storage) {
+	log := ss.log("Save")
 
+	storage, err := ss.repo.Save(storage)
+	if err != nil {
+		log.Error("Cannot save storage: " + err.Error())
+		return
 	}
 
-	ss.cache.Set(s.BasePath, s)
-
-	/*
-				const storageFile = this.openStorageFiles.get(data.basePath);
-		    if (storageFile && storageFile.instances.size < 1) this.close(data);
-	*/
+	ss.cache.Set(storage.BasePath, storage)
 }
 
-func (ss *StorageService) getLog(name string) *slog.Logger {
+func (ss *StorageService) log(name string) *slog.Logger {
 	op := "StorageService." + name
 	return slog.Default().With(slog.String("op", op))
 }
