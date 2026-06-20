@@ -59,6 +59,10 @@ func (ps *ProxyRoute) Pass(w http.ResponseWriter, proxy *Proxy) {
 
 	w.Header().Add("X-Request-Id", strconv.FormatInt(proxy.RequestId, 10))
 
+	if proxy.Hooks != nil {
+		proxy.Hooks.BeforeRequest(proxy)
+	}
+
 	resp, err := ps.transport.RoundTrip(proxy.Req)
 	if err != nil {
 		log.Debug("Error response", "error", err)
@@ -76,8 +80,8 @@ func (ps *ProxyRoute) Pass(w http.ResponseWriter, proxy *Proxy) {
 	var origBody io.ReadCloser = resp.Body
 	defer origBody.Close()
 
-	if proxy.Intercept != nil {
-		proxy.Intercept(proxy)
+	if proxy.Hooks != nil {
+		proxy.Hooks.InterceptResponse(proxy)
 	}
 
 	dst := w.Header()
@@ -88,8 +92,14 @@ func (ps *ProxyRoute) Pass(w http.ResponseWriter, proxy *Proxy) {
 	w.WriteHeader(resp.StatusCode)
 
 	nr, err := io.Copy(w, resp.Body)
+
+	if proxy.Hooks != nil {
+		proxy.Hooks.AfterResponse(proxy, err)
+	}
+
 	if err != nil {
 		log.Warn("Cannot copy to copy writer", "error", err)
+		return
 	}
 
 	err = resp.Body.Close()

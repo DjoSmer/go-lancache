@@ -123,6 +123,15 @@ func TestProxyPassTLS(t *testing.T) {
 	assert.Equal(t, string(result), "lancache-tls")
 }
 
+type Hooks struct{}
+
+func (h Hooks) BeforeRequest(proxy *proxy.Proxy) {}
+func (h Hooks) InterceptResponse(proxy *proxy.Proxy) {
+	proxy.Resp.StatusCode = http.StatusCreated
+	proxy.Resp.Body = io.NopCloser(bytes.NewBufferString("proxy"))
+}
+func (h Hooks) AfterResponse(proxy *proxy.Proxy, err error) {}
+
 func TestReplaceResponse(t *testing.T) {
 	proxyRoute := proxy.NewProxyRoute()
 	ctx := context.Background()
@@ -133,10 +142,7 @@ func TestReplaceResponse(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, s.URL+"/proxy-test", nil)
 	p := proxyRoute.CreateProxyContext(ctx, req)
-	p.Intercept = func(proxy *proxy.Proxy) {
-		p.Resp.StatusCode = http.StatusCreated
-		p.Resp.Body = io.NopCloser(bytes.NewBufferString("proxy"))
-	}
+	p.Hooks = &Hooks{}
 
 	rec := httptest.NewRecorder()
 	proxyRoute.Pass(rec, p)
