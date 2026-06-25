@@ -6,22 +6,21 @@ import (
 	"errors"
 	"log/slog"
 	"time"
+
+	"go-lancache/internal/config"
 )
 
-type Config struct {
-	StoragePath string
-}
-
 type StorageService struct {
-	config Config
+	config config.StorageConfig
 	repo   *StorageRepository
 	cache  *StorageCache
 }
 
-func NewStorageService(repo *StorageRepository, cache *StorageCache) *StorageService {
+func NewStorageService(repo *StorageRepository, cache *StorageCache, config config.StorageConfig) *StorageService {
 	return &StorageService{
-		cache: cache,
-		repo:  repo,
+		cache:  cache,
+		repo:   repo,
+		config: config,
 	}
 }
 
@@ -52,7 +51,7 @@ func (ss *StorageService) Get(ctx context.Context, basePath string) (*Storage, e
 		return &storage, nil
 	}
 
-	storage, err := ss.repo.Get(ctx, basePath)
+	storage, err := ss.repo.FindByBasePath(ctx, basePath)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			log.Error("Storage repo return error: " + err.Error())
@@ -66,7 +65,7 @@ func (ss *StorageService) Get(ctx context.Context, basePath string) (*Storage, e
 }
 
 func (ss *StorageService) CreateFile(storage *Storage, write bool) StorageFile {
-	return NewStorageFile(storage, ss.config.StoragePath, write)
+	return NewStorageFile(storage, ss.config.Path, write)
 }
 
 func (ss *StorageService) IncreaseDownloadCount(storage *Storage) *Storage {

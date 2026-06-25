@@ -3,8 +3,11 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 )
+
+var ErrStorageNotFound = errors.New("storage not found")
 
 type StorageRepository struct {
 	db *sql.DB
@@ -16,15 +19,15 @@ func NewStorageRepository(db *sql.DB) *StorageRepository {
 	}
 }
 
-func (sr *StorageRepository) Get(ctx context.Context, basePath string) (Storage, error) {
+func (sr *StorageRepository) FindByBasePath(ctx context.Context, basePath string) (Storage, error) {
 	var s Storage
 
 	row := sr.db.QueryRowContext(ctx, `SELECT "basePath", "createdAt", "updatedAt", "downloadCount", "targetId", status FROM storage WHERE basePath = ?`, basePath)
 	err := row.Scan(&s.BasePath, &s.CreatedAt, &s.UpdatedAt, &s.DownloadCount, &s.TargetId, &s.Status)
 	if err != nil {
-		// if err == sql.ErrNoRows {
-		// 	return s, fmt.Errorf("%s: %w", op, sql.ErrNoRows)
-		// }
+		if err == sql.ErrNoRows {
+			return s, ErrStorageNotFound
+		}
 		return s, err
 	}
 
