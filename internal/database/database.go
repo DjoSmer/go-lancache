@@ -6,12 +6,15 @@ import (
 	"log/slog"
 	"time"
 
+	_ "github.com/lib/pq"
+
 	"go-lancache/internal/config"
 )
 
-func New(cfg config.PostgresConfig, log *slog.Logger) *sql.DB {
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.DB)
+func New(config config.PostgresConfig) *sql.DB {
+	log := slog.Default()
 
+	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", config.Host, config.Port, config.User, config.Password, config.DB)
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		panic(err)
@@ -26,7 +29,7 @@ func New(cfg config.PostgresConfig, log *slog.Logger) *sql.DB {
 		panic(err)
 	}
 
-	log.Debug("Successfully connected!")
+	log.Debug("DB Successfully connected!")
 
 	return db
 }
