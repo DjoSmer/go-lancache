@@ -43,12 +43,14 @@ func (ps *ProxyRoute) CreateProxyContext(ctx context.Context, req *http.Request)
 	}
 }
 
-func (ps *ProxyRoute) Handler(w http.ResponseWriter, req *http.Request) {
+func (ps *ProxyRoute) Handler(w http.ResponseWriter, req *http.Request) bool {
 	ctx, cancel := context.WithCancel(req.Context())
 	defer cancel()
 
 	proxy := ps.CreateProxyContext(ctx, req)
 	ps.Pass(w, proxy)
+
+	return true
 }
 
 func (ps *ProxyRoute) Pass(w http.ResponseWriter, proxy *Proxy) {

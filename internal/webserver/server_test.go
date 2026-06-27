@@ -70,7 +70,7 @@ func TestMain(m *testing.M) {
 	certFile := filepath.Join(tmpDir, "go-lancache-test-ca.pem")
 	keyFile := filepath.Join(tmpDir, "go-lancache-test-key.pem")
 
-	cfg = *config.Load()
+	cfg = config.Load()
 	cfg.ServerAddress.Http = ":880"
 	cfg.ServerAddress.Https = ":4443"
 	cfg.Ca.Cert = certFile
