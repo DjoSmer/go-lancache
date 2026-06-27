@@ -1,6 +1,9 @@
 package storage
 
-import "sync"
+import (
+	"log/slog"
+	"sync"
+)
 
 type StorageCache struct {
 	mu   sync.RWMutex
@@ -13,33 +16,44 @@ func NewStorageCache() *StorageCache {
 	}
 }
 
-func (this *StorageCache) Get(key string) (Storage, bool) {
-	this.mu.RLock()
-	defer this.mu.RUnlock()
-	s, ok := this.data[key]
+func (c *StorageCache) Get(key string) (Storage, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	s, ok := c.data[key]
 	return s, ok
 }
 
-func (this *StorageCache) Set(key string, storage Storage) {
-	this.mu.Lock()
-	defer this.mu.Unlock()
-	this.data[key] = storage
+func (c *StorageCache) Set(key string, storage Storage) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.data[key] = storage
 }
 
-func (this *StorageCache) Update(key string, updateFn func(s *Storage) *Storage) *Storage {
-	this.mu.Lock()
-	defer this.mu.Unlock()
+func (c *StorageCache) Update(key string, updateFn func(s *Storage) *Storage) *Storage {
+	log := c.log("Update")
 
-	storage, ok := this.data[key]
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	storage, ok := c.data[key]
 	if !ok {
+		log.Debug("Not found in cache")
 		return nil
 	}
 
+	orgStorage := storage
+
 	result := updateFn(&storage)
 	if result != nil {
-		this.data[key] = *result
+		log.Debug("Updated", slog.Any("org", orgStorage), slog.Any("new", result))
+		c.data[key] = *result
 		return result
 	}
 
 	return &storage
+}
+
+func (c *StorageCache) log(name string) *slog.Logger {
+	op := "StorageCache." + name
+	return slog.Default().With(slog.String("op", op))
 }

@@ -22,7 +22,7 @@ func NewStorageRepository(db *sql.DB) *StorageRepository {
 func (sr *StorageRepository) FindByBasePath(ctx context.Context, basePath string) (Storage, error) {
 	var s Storage
 
-	row := sr.db.QueryRowContext(ctx, `SELECT "basePath", "createdAt", "updatedAt", "downloadCount", "targetId", status FROM storage WHERE basePath = ?`, basePath)
+	row := sr.db.QueryRowContext(ctx, `SELECT "basePath", "createdAt", "updatedAt", "downloadCount", "targetId", status FROM storage WHERE "basePath" = $1`, basePath)
 	err := row.Scan(&s.BasePath, &s.CreatedAt, &s.UpdatedAt, &s.DownloadCount, &s.TargetId, &s.Status)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -55,7 +55,7 @@ func (sr *StorageRepository) Save(storage Storage) (Storage, error) {
 func (sr *StorageRepository) add(storage *Storage) error {
 	const op = "storage.repo.add"
 
-	stmt, err := sr.db.Prepare(`INSERT INTO storage ("basePath", "createdAt", "updatedAt", "downloadCount", "targetId", status) VALUES (?, ?, ?, ?, ?, ?)`)
+	stmt, err := sr.db.Prepare(`INSERT INTO storage ("basePath", "createdAt", "updatedAt", "downloadCount", "targetId", "status") VALUES ($1, $2, $3, $4, $5, $6)`)
 	if err != nil {
 		return fmt.Errorf("%s.prepare: %w", op, err)
 	}
@@ -71,7 +71,7 @@ func (sr *StorageRepository) add(storage *Storage) error {
 func (sr *StorageRepository) update(storage *Storage) error {
 	const op = "storage.repo.update"
 
-	stmt, err := sr.db.Prepare(`UPDATE storage SET "updatedAt" = ?, "downloadCount" = ?, status = ? WHERE "basePath" = ?`)
+	stmt, err := sr.db.Prepare(`UPDATE storage SET "updatedAt" = $1, "downloadCount" = $2, status = $3 WHERE "basePath" = $4`)
 	if err != nil {
 		return fmt.Errorf("%s.prepare: %w", op, err)
 	}
