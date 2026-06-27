@@ -1,6 +1,9 @@
 package config
 
-import "github.com/ilyakaznacheev/cleanenv"
+import (
+	"github.com/ilyakaznacheev/cleanenv"
+	"github.com/joho/godotenv"
+)
 
 type Config struct {
 	LogLevel string `env:"LOG_LEVEL" env-default:"warning"`
@@ -38,7 +41,7 @@ type StorageConfig struct {
 type TargetConfig struct {
 	// The github repo url for the cache_domains files to use to populate the cdn maps,
 	// if you do not want to use the recommended source for testing purposes.
-	UrlCacheDomains string `env:"URL_CACHE_DOMAINS"`
+	CacheDomainsUrl string `env:"CACHE_DOMAINS_URL"`
 }
 
 type PostgresConfig struct {
@@ -49,12 +52,18 @@ type PostgresConfig struct {
 	DB       string `env:"POSTGRES_DB" env-default:"lancache"`
 }
 
-func Load() *Config {
+func Load() Config {
 	var cfg Config
 
-	err := cleanenv.ReadEnv(&cfg)
+	err := godotenv.Load()
+	if err != nil {
+		panic("Error loading .env file" + err.Error())
+	}
+
+	err = cleanenv.ReadEnv(&cfg)
 	if err != nil {
 		panic("cannot init config: " + err.Error())
 	}
-	return &cfg
+
+	return cfg
 }
