@@ -17,7 +17,7 @@ func NewDBTargetRepository(db *sql.DB) *DBTargetRepository {
 func (r *DBTargetRepository) FindById(ctx context.Context, id int) (Target, error) {
 	var t Target
 
-	row := r.db.QueryRowContext(ctx, `SELECT "id", "code", "host", "userAgent" FROM target WHERE id = ?`, id)
+	row := r.db.QueryRowContext(ctx, `SELECT "id", "code", COALESCE(host, '') as host, COALESCE("userAgent", '') as "userAgent" FROM target WHERE id = ?`, id)
 	err := row.Scan(&t.Id, &t.Code, &t.Domain, &t.UserAgent)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -32,7 +32,7 @@ func (r *DBTargetRepository) FindById(ctx context.Context, id int) (Target, erro
 func (r *DBTargetRepository) GetAll(ctx context.Context) ([]Target, error) {
 	var ts []Target
 
-	rows, err := r.db.QueryContext(ctx, `SELECT "id", "code", "host", "userAgent" FROM target`)
+	rows, err := r.db.QueryContext(ctx, `SELECT "id", "code", COALESCE(host, '') as host, COALESCE("userAgent", '') as "userAgent" FROM target`)
 	if err != nil {
 		return nil, fmt.Errorf("target.getAll: %v", err)
 	}

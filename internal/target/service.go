@@ -3,6 +3,7 @@ package target
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -41,6 +42,9 @@ func NewTargetService(repo TargetRepository, config config.TargetConfig) *Target
 }
 
 func (s *TargetService) Get(cxt context.Context, domain string, userAgent string, url string) (Target, error) {
+	log := s.log("Get")
+	log.Debug("Run", slog.String("domain", domain), slog.String("userAgent", userAgent), slog.String("url", url))
+
 	if s.targets == nil {
 		return Target{}, ErrTargetsEmpty
 	}
@@ -64,14 +68,16 @@ func (s *TargetService) Get(cxt context.Context, domain string, userAgent string
 	return Target{}, ErrSkipTarget
 }
 
-func (s *TargetService) Load(cxt context.Context) {
+func (s *TargetService) Load() {
 	log := s.log("Load")
 
-	targets, err := s.repo.GetAll(cxt)
+	targets, err := s.repo.GetAll(context.Background())
 	if err != nil {
 		log.Error("Cannot load target: " + err.Error())
 		return
 	}
+
+	log.Debug(fmt.Sprintf("Loaded %d targets", len(targets)))
 	s.targets = targets
 }
 

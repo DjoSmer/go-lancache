@@ -35,7 +35,7 @@ func TestGet_CheckDefaultNoTargetUrls(t *testing.T) {
 	service := target.NewTargetService(&mockTargetRepository{}, config.TargetConfig{})
 	ctx := context.Background()
 
-	service.Load(ctx)
+	service.Load()
 
 	urls := []string{
 		"/game/service.json", "/game/img.jpeg?t=ret", "/game/service.xml?q=1&w=rrrr",
@@ -54,7 +54,7 @@ func TestGet_MatchUserAgent(t *testing.T) {
 	service := target.NewTargetService(&mockTargetRepository{}, config.TargetConfig{})
 	ctx := context.Background()
 
-	service.Load(ctx)
+	service.Load()
 
 	target, err := service.Get(ctx, "-", "Valve/Steam HTTP Client 1.0", "/game/patch.bin")
 	assert.NoError(t, err)
@@ -68,7 +68,7 @@ func TestGet_MatchHostOrSubdomain(t *testing.T) {
 	service := target.NewTargetService(&mockTargetRepository{}, config.TargetConfig{})
 	ctx := context.Background()
 
-	service.Load(ctx)
+	service.Load()
 
 	// target.Domain == Domain
 	target, err := service.Get(ctx, "valve.com", "-", "/game/patch.bin")
