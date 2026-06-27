@@ -12,4 +12,5 @@ type storageService interface {
 	CreateFile(storage *storage.Storage, write bool) storage.StorageFile
 	Lock(storage *storage.Storage) (*storage.Storage, bool)
 	Release(storage *storage.Storage, err error) *storage.Storage
+	IncreaseDownloadCount(storage *storage.Storage) *storage.Storage
 }

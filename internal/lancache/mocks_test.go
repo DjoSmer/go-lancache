@@ -49,6 +49,9 @@ func (m *mockStorageService) Create(key string, targetId int) *storage.Storage {
 	}
 }
 
+func (m *mockStorageService) IncreaseDownloadCount(storage *storage.Storage) *storage.Storage {
+	return storage
+}
 func (m *mockStorageService) CreateFile(storage *storage.Storage, write bool) storage.StorageFile {
 	return m.fileMock
 }

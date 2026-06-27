@@ -3,6 +3,7 @@ package lancache
 import (
 	"context"
 	"io"
+	"log/slog"
 	"net/http"
 	"regexp"
 )
@@ -22,17 +23,23 @@ func NewLancacheRoute(ss storageService, ts targetService, pr proxyRoute) *Lanca
 }
 
 func (r *LancacheRoute) Handler(w http.ResponseWriter, req *http.Request) bool {
+	log := r.log("Handler")
+
 	ctx, cancel := context.WithCancel(req.Context())
 	defer cancel()
 
 	if req.Method != http.MethodGet || isLocalhost(req) {
+		log.Debug("Skip: not method Get or Localhost")
 		return false
 	}
 
 	t, err := r.targetService.Get(ctx, req.Host, req.UserAgent(), req.URL.Path)
 	if err != nil {
+		log.Debug("Skip: not target")
 		return false
 	}
+
+	log.Debug("Run", slog.String("url", req.URL.Path))
 
 	pathname := req.URL.Path
 	basePath := t.Code + pathname
@@ -49,6 +56,7 @@ func (r *LancacheRoute) Handler(w http.ResponseWriter, req *http.Request) bool {
 		w.Header().Add("X-Lancache-Status", "HIT")
 		io.Copy(w, sf)
 
+		r.storageService.IncreaseDownloadCount(storage)
 		return true
 	}
 
@@ -72,6 +80,11 @@ func (r *LancacheRoute) Handler(w http.ResponseWriter, req *http.Request) bool {
 
 	r.proxyRoute.Pass(w, proxy)
 	return true
+}
+
+func (r *LancacheRoute) log(name string) *slog.Logger {
+	op := "LancacheRoute." + name
+	return slog.Default().With(slog.String("op", op))
 }
 
 func isLocalhost(req *http.Request) bool {

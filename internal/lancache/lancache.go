@@ -25,6 +25,9 @@ func NewLancache(storage *storage.Storage, ss storageService) *lancache {
 func (l *lancache) BeforeRequest(proxy *proxy.Proxy) {}
 
 func (l *lancache) InterceptResponse(proxy *proxy.Proxy) {
+	log := l.log("InterceptResponse")
+	log.Debug("Run", slog.String("url", proxy.Req.URL.Path))
+
 	reader := proxy.Resp.Body
 	l.StorageFile = l.storageService.CreateFile(l.storage, true)
 	l.tee = io.TeeReader(reader, l.StorageFile)
@@ -33,8 +36,11 @@ func (l *lancache) InterceptResponse(proxy *proxy.Proxy) {
 
 func (l *lancache) AfterResponse(proxy *proxy.Proxy, err error) {
 	log := l.log("AfterResponse")
+	log.Debug("Run", slog.String("url", proxy.Req.URL.Path))
 
 	if err != nil {
+		log.Debug("Error: " + err.Error())
+
 		l.StorageFile.Close()
 		err := l.StorageFile.Remove()
 		if err != nil {
