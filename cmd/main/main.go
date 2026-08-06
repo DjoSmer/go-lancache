@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"go-lancache/internal/config"
 	"go-lancache/internal/database"
@@ -34,11 +35,19 @@ func main() {
 	ts.Load()
 
 	sr := storage.NewStorageRepository(db)
-	sc := storage.NewStorageCache()
+	sc := storage.NewStorageCache(time.Duration(config.Storage.CacheTTL) * time.Minute)
 	ss := storage.NewStorageService(sr, sc, config.Storage)
 
+	sc.OnEvict = func(s storage.Storage) {
+		sr.Save(s)
+	}
+	sc.Start()
+
 	pp := proxy.NewProxyRoute()
-	lr := lancache.NewLancacheRoute(ss, ts, pp)
+
+	ad := lancache.NewAnomalyDetector(config.AnomalyDetector, time.Duration(config.AnomalyDetector.HistoryTTL)*time.Second, time.Duration(config.AnomalyDetector.CleanupTimeTicker)*time.Second)
+	ad.Start()
+	lr := lancache.NewLancacheRoute(ss, ts, pp, ad)
 
 	r := route.NewRoute()
 	r.AddRoute(lr)
@@ -50,4 +59,10 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
 	<-stop
+
+	server.Close()
+	sc.Stop()
+	ad.Stop()
+
+	sc.EvictAll()
 }
