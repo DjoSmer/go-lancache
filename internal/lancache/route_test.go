@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"go-lancache/internal/config"
 	"go-lancache/internal/lancache"
 	"go-lancache/internal/proxy"
 	"go-lancache/internal/storage"
@@ -31,7 +33,8 @@ var mockTarget = &mockTargetService{
 	},
 }
 var mockProxy = &mockProxyRoute{}
-var route = lancache.NewLancacheRoute(mockStorage, mockTarget, mockProxy)
+var ad = lancache.NewAnomalyDetector(config.AnomalyDetectorConfig{}, 1*time.Second, 3*time.Second)
+var route = lancache.NewLancacheRoute(mockStorage, mockTarget, mockProxy, ad)
 
 func TestLancacheRoute_Handler_not_Get_Method(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://example.com", nil)
@@ -65,7 +68,7 @@ func TestLancacheRoute_Handler_not_Target(t *testing.T) {
 		target:      nil,
 	}
 
-	route := lancache.NewLancacheRoute(mockStorage, mockTarget, mockProxy)
+	route := lancache.NewLancacheRoute(mockStorage, mockTarget, mockProxy, ad)
 
 	result := route.Handler(rec, req)
 	assert.False(t, result)
@@ -113,7 +116,7 @@ func TestLancacheRoute_Handler_Prepare_Upload(t *testing.T) {
 		},
 	}
 
-	route := lancache.NewLancacheRoute(mockStorage, mockTarget, mockProxy)
+	route := lancache.NewLancacheRoute(mockStorage, mockTarget, mockProxy, ad)
 
 	result := route.Handler(rec, req)
 	assert.True(t, result)
@@ -140,7 +143,7 @@ func TestLancacheRoute_Handler_not_Available(t *testing.T) {
 		},
 	}
 
-	route := lancache.NewLancacheRoute(mockStorage, mockTarget, mockProxy)
+	route := lancache.NewLancacheRoute(mockStorage, mockTarget, mockProxy, ad)
 
 	result := route.Handler(rec, req)
 	assert.True(t, result)
@@ -168,7 +171,7 @@ func TestLancacheRoute_Handler_cannot_Lock(t *testing.T) {
 		},
 	}
 
-	route := lancache.NewLancacheRoute(mockStorage, mockTarget, mockProxy)
+	route := lancache.NewLancacheRoute(mockStorage, mockTarget, mockProxy, ad)
 
 	result := route.Handler(rec, req)
 	assert.True(t, result)

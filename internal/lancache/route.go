@@ -6,19 +6,22 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strings"
 )
 
 type LancacheRoute struct {
 	storageService storageService
 	targetService  targetService
 	proxyRoute     proxyRoute
+	detector       *AnomalyDetector
 }
 
-func NewLancacheRoute(ss storageService, ts targetService, pr proxyRoute) *LancacheRoute {
+func NewLancacheRoute(ss storageService, ts targetService, pr proxyRoute, detector *AnomalyDetector) *LancacheRoute {
 	return &LancacheRoute{
 		storageService: ss,
 		targetService:  ts,
 		proxyRoute:     pr,
+		detector:       detector,
 	}
 }
 
@@ -49,6 +52,19 @@ func (r *LancacheRoute) Handler(w http.ResponseWriter, req *http.Request) bool {
 		storage = r.storageService.Create(basePath, t.Id)
 	}
 
+	parts := strings.Split(req.RemoteAddr, ":")
+	remoteIp := "unknown"
+	if len(parts) > 0 {
+		remoteIp = parts[0]
+	}
+
+	if storage.IsSuccess() {
+		isAnomaly := r.detector.Detect(remoteIp, storage.BasePath)
+		if isAnomaly {
+			storage = r.storageService.MarkAsCorrupted(storage)
+		}
+	}
+
 	if storage.IsSuccess() {
 		sf := r.storageService.CreateFile(storage, false)
 		defer sf.Close()
@@ -57,6 +73,7 @@ func (r *LancacheRoute) Handler(w http.ResponseWriter, req *http.Request) bool {
 		io.Copy(w, sf)
 
 		r.storageService.IncreaseDownloadCount(storage)
+		r.detector.Finish(remoteIp, storage.BasePath)
 		return true
 	}
 

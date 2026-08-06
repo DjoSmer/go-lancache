@@ -104,6 +104,14 @@ func (ss *StorageService) Release(storage *Storage, err error) *Storage {
 	return storage
 }
 
+func (ss *StorageService) MarkAsCorrupted(storage *Storage) *Storage {
+	storage = ss.cache.Update(storage.BasePath, func(storage *Storage) *Storage {
+		storage.SetStatus(StorageStatusError)
+		return storage
+	})
+	return storage
+}
+
 func (ss *StorageService) Save(storage Storage) {
 	log := ss.log("Save")
 

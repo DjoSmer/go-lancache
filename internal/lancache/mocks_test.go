@@ -59,6 +59,9 @@ func (m *mockStorageService) Lock(storage *storage.Storage) (*storage.Storage, b
 	m.lockCalled = true
 	return nil, m.lock
 }
+func (m *mockStorageService) MarkAsCorrupted(storage *storage.Storage) *storage.Storage {
+	return nil
+}
 func (m *mockStorageService) Release(storage *storage.Storage, err error) *storage.Storage {
 	m.releaseCalled = true
 	return nil

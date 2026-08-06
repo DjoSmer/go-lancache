@@ -8,11 +8,12 @@ import (
 type Config struct {
 	LogLevel string `env:"LOG_LEVEL" env-default:"warning"`
 
-	Ca            CaConfig
-	DBConfig      PostgresConfig
-	ServerAddress ServerAddress
-	Storage       StorageConfig
-	Target        TargetConfig
+	Ca              CaConfig
+	DBConfig        PostgresConfig
+	ServerAddress   ServerAddress
+	Storage         StorageConfig
+	Target          TargetConfig
+	AnomalyDetector AnomalyDetectorConfig
 }
 
 type ServerAddress struct {
@@ -36,6 +37,19 @@ type StorageConfig struct {
 	// The amount of disk space the container should use for caching data. Specified in gigabytes.
 	// 1T - 1TB, 100G - 100GB, 10000M - 10000MB
 	DiskSize string `env:"STORAGE_DISK_SIZE" env-default:"512G"`
+
+	// Set Storage cache ttl in minutes
+	CacheTTL int `env:"STORAGE_CACHE_TTL" env-default:"5"`
+}
+type AnomalyDetectorConfig struct {
+	// Detect history TTL in second
+	HistoryTTL int `env:"ANOMALY_DETECTOR_TTL" env-default:"15"`
+
+	// in second
+	CleanupTimeTicker int `env:"ANOMALY_DETECTOR_CLEANUP_TIME_TICKER" env-default:"15"`
+
+	// if a history > HistoryMax at HistoryTTL it's anomaly
+	HistoryMax int `env:"ANOMALY_DETECTOR_MAX" env-default:"3"`
 }
 
 type TargetConfig struct {
