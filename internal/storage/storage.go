@@ -22,16 +22,13 @@ type Storage struct {
 	TargetId      int
 	Status        StorageStatus
 	IsNew         bool
-	// service       *StorageService
+	Dirty         bool
 }
-
-// func (s *Storage) AddInstance() {}
-// func (s *Storage) InstanceClose() {}
-// func (s *Storage) close() {}
 
 func (s *Storage) IncreaseDownloadCount() {
 	s.DownloadCount++
 	s.UpdatedAt = time.Now()
+	s.Dirty = true
 }
 
 func (s *Storage) GetStatus() StorageStatus {
@@ -41,6 +38,7 @@ func (s *Storage) GetStatus() StorageStatus {
 func (s *Storage) SetStatus(status StorageStatus) {
 	s.Status = status
 	s.UpdatedAt = time.Now()
+	s.Dirty = true
 }
 
 func (s *Storage) IsSuccess() bool {
@@ -50,10 +48,3 @@ func (s *Storage) IsSuccess() bool {
 func (s *Storage) IsAvailable() bool {
 	return s.Status == StorageStatusIdle || s.Status == StorageStatusError
 }
-
-// func (s *Storage) SetService(ss *StorageService) {
-// 	s.service = ss
-// }
-
-// func (s *Storage) Save() {
-// }

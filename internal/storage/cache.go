@@ -26,16 +26,34 @@ type StorageCache struct {
 	last       *cacheNode
 	ttl        time.Duration
 	stopWorker chan struct{}
+	OnEvict    func(Storage)
 }
+
+var defaultItemsSize = 10000
 
 func NewStorageCache(ttl time.Duration) *StorageCache {
 	cache := &StorageCache{
-		items:      make(map[string]*cacheItem),
+		items:      make(map[string]*cacheItem, defaultItemsSize),
 		ttl:        ttl,
 		stopWorker: make(chan struct{}),
 	}
-	go cache.startNodeWorker()
+
 	return cache
+}
+
+func (c *StorageCache) EvictAll() {
+	c.mu.Lock()
+
+	items := c.items
+	c.items = make(map[string]*cacheItem, defaultItemsSize)
+	c.first = nil
+	c.last = nil
+
+	c.mu.Unlock()
+
+	for _, item := range items {
+		c.OnEvict(item.value)
+	}
 }
 
 func (c *StorageCache) Get(key string) (Storage, bool) {
@@ -155,17 +173,31 @@ func (c *StorageCache) startNodeWorker() {
 			c.first.Prev = nil
 		}
 
+		toEvict := false
 		item, ok := c.items[node.Key]
 		if ok && item.expiresAt.Compare(node.expiresAt) != 1 {
 			log.Debug("Node delete: " + node.Key)
+
+			if item.value.Dirty && c.OnEvict != nil {
+				toEvict = true
+			}
+
 			delete(c.items, node.Key)
 		}
 
 		c.mu.Unlock()
+
+		if toEvict {
+			go c.OnEvict(item.value)
+		}
 	}
 }
 
-func (c *StorageCache) Close() {
+func (c *StorageCache) Start() {
+	go c.startNodeWorker()
+}
+
+func (c *StorageCache) Stop() {
 	close(c.stopWorker)
 }
 

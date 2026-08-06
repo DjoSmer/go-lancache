@@ -199,7 +199,8 @@ func TestFirstLast_MoveFirst(t *testing.T) {
 
 func Test_Expiration(t *testing.T) {
 	cache := storage.NewStorageCache(time.Second)
-	defer cache.Close()
+	cache.Start()
+	defer cache.Stop()
 
 	cache.Set("key", storage.Storage{
 		BasePath: "test",
@@ -213,7 +214,8 @@ func Test_Expiration(t *testing.T) {
 
 func TestUpdate_UpTime(t *testing.T) {
 	cache := storage.NewStorageCache(time.Second)
-	defer cache.Close()
+	cache.Start()
+	defer cache.Stop()
 
 	cache.Set("key", storage.Storage{
 		BasePath: "test",
@@ -235,7 +237,8 @@ func TestUpdate_UpTime(t *testing.T) {
 
 func TestGet_UpTime(t *testing.T) {
 	cache := storage.NewStorageCache(300 * time.Millisecond)
-	defer cache.Close()
+	cache.Start()
+	defer cache.Stop()
 
 	cache.Set("key", storage.Storage{
 		BasePath: "test",
@@ -254,7 +257,8 @@ func TestGet_UpTime(t *testing.T) {
 
 func TestSet_UpTime(t *testing.T) {
 	cache := storage.NewStorageCache(time.Second)
-	defer cache.Close()
+	cache.Start()
+	defer cache.Stop()
 
 	cache.Set("key", storage.Storage{
 		BasePath: "test",
@@ -288,6 +292,8 @@ func waitUntil(t *testing.T, fn func() bool) {
 
 func TestUncache_All(t *testing.T) {
 	cache := storage.NewStorageCache(time.Second)
+	cache.Start()
+	defer cache.Stop()
 
 	for i := range 100 {
 		s := storage.Storage{
@@ -305,9 +311,7 @@ func TestUncache_All(t *testing.T) {
 		require.True(t, ok)
 	}
 
-	waitUntil(t, func() bool {
-		return cache.Size() == 0
-	})
+	time.Sleep(1200 * time.Millisecond)
 
 	require.Nil(t, cache.GetFirst())
 	require.Nil(t, cache.GetLast())
@@ -315,6 +319,7 @@ func TestUncache_All(t *testing.T) {
 
 func TestUncache_OrderValidate(t *testing.T) {
 	cache := storage.NewStorageCache(time.Second)
+	cache.Start()
 
 	for i := range 100 {
 		s := storage.Storage{
@@ -360,7 +365,7 @@ func TestUncache_OrderValidate(t *testing.T) {
 		return cache.Size() == len(keys)
 	})
 
-	cache.Close()
+	cache.Stop()
 
 	require.Equal(t, len(keys), cache.Size())
 	require.Equal(t, keys[len(keys)-1], cache.GetLast().Key)
@@ -373,6 +378,40 @@ func TestUncache_OrderValidate(t *testing.T) {
 		i++
 		cur = cur.Next
 	}
+}
+
+func TestUncache_OnEvict(t *testing.T) {
+	var wg sync.WaitGroup
+	visited := make(map[string]struct{}, 50)
+
+	cache := storage.NewStorageCache(time.Second)
+	cache.OnEvict = func(s storage.Storage) {
+		defer wg.Done()
+		_, ok := visited[s.BasePath]
+		require.False(t, ok)
+	}
+	cache.Start()
+	defer cache.Stop()
+
+	for i := range 100 {
+		s := storage.Storage{
+			BasePath: strconv.Itoa(i),
+			Dirty:    true,
+		}
+		cache.Set(s.BasePath, s)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+
+	for range 50 {
+		key := strconv.Itoa(rand.Intn(100))
+		cache.Get(key)
+		visited[key] = struct{}{}
+	}
+
+	wg.Add(100 - len(visited))
+	wg.Wait()
+
 }
 
 func Test_ConcurrentAccess(t *testing.T) {
@@ -474,7 +513,8 @@ func Test_ListIntegrityConcurrent(t *testing.T) {
 
 func Test_CountMatchesList(t *testing.T) {
 	cache := storage.NewStorageCache(time.Hour)
-	defer cache.Close()
+	cache.Start()
+	defer cache.Stop()
 
 	for i := range 1000 {
 		cache.Set(strconv.Itoa(i), storage.Storage{})
@@ -503,14 +543,15 @@ func Test_Stress(t *testing.T) {
 	}
 
 	cache := storage.NewStorageCache(5 * time.Second)
-	defer cache.Close()
+	cache.Start()
+	defer cache.Stop()
 
 	var wg sync.WaitGroup
 
-	for i := range 100 {
+	for range 100 {
 		wg.Add(1)
 
-		go func(id int) {
+		go func() {
 			defer wg.Done()
 
 			for range 100000 {
@@ -529,7 +570,7 @@ func Test_Stress(t *testing.T) {
 					})
 				}
 			}
-		}(i)
+		}()
 	}
 
 	wg.Wait()
