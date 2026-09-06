@@ -20,14 +20,20 @@ var defaultNoTargetUrls = []string{
 	"(releaselisting_.*|.version$)",
 }
 
+type TargetServiceRepository interface {
+	FindById(ctx context.Context, id int) (Target, error)
+	GetAll(ctx context.Context) ([]Target, error)
+	Save(target Target) (Target, error)
+}
+
 type TargetService struct {
 	config             config.TargetConfig
-	repo               TargetRepository
+	repo               TargetServiceRepository
 	targets            []Target
 	noTargetUrlsRegexp []*regexp.Regexp
 }
 
-func NewTargetService(repo TargetRepository, config config.TargetConfig) *TargetService {
+func NewTargetService(repo TargetServiceRepository, config config.TargetConfig) *TargetService {
 	noTargetUrlsRegexp := make([]*regexp.Regexp, len(defaultNoTargetUrls))
 	for i, noTargetUrl := range defaultNoTargetUrls {
 		noTargetUrlsRegexp[i] = regexp.MustCompile(noTargetUrl)
