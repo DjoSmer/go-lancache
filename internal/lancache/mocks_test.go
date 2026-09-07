@@ -52,19 +52,19 @@ func (m *mockStorageService) Create(key string, targetId int) *storage.Storage {
 func (m *mockStorageService) IncreaseDownloadCount(storage *storage.Storage) *storage.Storage {
 	return storage
 }
-func (m *mockStorageService) CreateFile(storage *storage.Storage, write bool) storage.StorageFile {
-	return m.fileMock
+func (m *mockStorageService) GetFile(storage *storage.Storage) (storage.StorageFile, error) {
+	return m.fileMock, nil
 }
 func (m *mockStorageService) Lock(storage *storage.Storage) (*storage.Storage, bool) {
 	m.lockCalled = true
 	return nil, m.lock
 }
 func (m *mockStorageService) MarkAsCorrupted(storage *storage.Storage) *storage.Storage {
-	return nil
+	return storage
 }
-func (m *mockStorageService) Release(storage *storage.Storage, err error) *storage.Storage {
+func (m *mockStorageService) Release(ctx context.Context, storage *storage.Storage, err error) *storage.Storage {
 	m.releaseCalled = true
-	return nil
+	return storage
 }
 
 // MOCK TARGET SERVICE

@@ -66,15 +66,19 @@ func (r *LancacheRoute) Handler(w http.ResponseWriter, req *http.Request) bool {
 	}
 
 	if storage.IsSuccess() {
-		sf := r.storageService.CreateFile(storage, false)
-		defer sf.Close()
+		storageFile, err := r.storageService.GetFile(storage)
+		if err != nil {
+			log.Error("Storage GetFile", "BasePath", storage.BasePath, "error", err.Error())
+		} else {
+			defer storageFile.Close()
 
-		w.Header().Add("X-Lancache-Status", "HIT")
-		io.Copy(w, sf)
+			w.Header().Add("X-Lancache-Status", "HIT")
+			io.Copy(w, storageFile)
 
-		r.storageService.IncreaseDownloadCount(storage)
-		r.detector.Finish(remoteIp, storage.BasePath)
-		return true
+			r.storageService.IncreaseDownloadCount(storage)
+			r.detector.Finish(remoteIp, storage.BasePath)
+			return true
+		}
 	}
 
 	w.Header().Add("X-Lancache-Status", "MISS")
