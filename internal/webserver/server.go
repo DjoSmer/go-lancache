@@ -13,23 +13,25 @@ import (
 )
 
 type Server struct {
-	certs   Certs
-	config  config.Config
-	servers []*http.Server
+	certs  Certs
+	config config.Config
+	http   *http.Server
+	https  *http.Server
+	errors chan error
 }
 
 func NewServer(config config.Config) *Server {
 	return &Server{
-		config:  config,
-		certs:   *NewCerts(config.Ca),
-		servers: make([]*http.Server, 2),
+		config: config,
+		certs:  *NewCerts(config.Ca),
+		errors: make(chan error, 2),
 	}
 }
 
-func (s *Server) Run(ctx context.Context, handler http.Handler) {
-	log := s.log("Run").With(slog.String("op", "Server.Run"))
+func (s *Server) Run(ctx context.Context, handler http.Handler) <-chan error {
+	log := s.log("Run")
 
-	s.servers[0] = &http.Server{
+	s.http = &http.Server{
 		Addr:    s.config.ServerAddress.Http,
 		Handler: handler,
 	}
@@ -39,7 +41,7 @@ func (s *Server) Run(ctx context.Context, handler http.Handler) {
 		GetCertificate:     s.certs.GetCertificate,
 	}
 
-	s.servers[1] = &http.Server{
+	s.https = &http.Server{
 		Addr:      s.config.ServerAddress.Https,
 		Handler:   handler,
 		TLSConfig: tlsConfig,
@@ -51,30 +53,30 @@ func (s *Server) Run(ctx context.Context, handler http.Handler) {
 	go func() {
 		wg.Done()
 		log.Info(fmt.Sprintf("HTTP listening on %s", s.config.ServerAddress.Http))
-		err := s.servers[0].ListenAndServe()
-		s.isError(err)
+		err := s.http.ListenAndServe()
+		s.isError("http", err)
 	}()
 
 	go func() {
 		wg.Done()
 		log.Info(fmt.Sprintf("HTTPS listening on %s", s.config.ServerAddress.Https))
-		err := s.servers[1].ListenAndServeTLS("", "")
-		s.isError(err)
+		err := s.https.ListenAndServeTLS("", "")
+		s.isError("https", err)
 	}()
 
-	//Waiting when goroutines run and servers start
 	wg.Wait()
+
+	return s.errors
 }
 
-func (s *Server) Close() {
-	for _, srv := range s.servers {
-		srv.Close()
-	}
+func (s *Server) Shutdown(ctx context.Context) {
+	s.http.Shutdown(ctx)
+	s.https.Shutdown(ctx)
 }
 
-func (s *Server) isError(err error) {
+func (s *Server) isError(protocol string, err error) {
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
-		panic(err)
+		s.errors <- fmt.Errorf("Protocol %s: %w", protocol, err)
 	}
 }
 

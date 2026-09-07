@@ -82,6 +82,6 @@ func TestMain(m *testing.M) {
 	}))
 
 	code := m.Run()
-	webServer.Close()
+	webServer.Shutdown(context.Background())
 	os.Exit(code)
 }
