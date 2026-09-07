@@ -1,19 +1,27 @@
 package config
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/ilyakaznacheev/cleanenv"
 	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	LogLevel string `env:"LOG_LEVEL" env-default:"warning"`
-
+	Log             Log
 	Ca              CaConfig
 	DBConfig        PostgresConfig
 	ServerAddress   ServerAddress
 	Storage         StorageConfig
 	Target          TargetConfig
 	AnomalyDetector AnomalyDetectorConfig
+}
+
+type Log struct {
+	//DEBUG/INFO/WARN/ERROR
+	Level     string `env:"LOG_LEVEL" env-default:"INFO"`
+	AddSource bool   `env:"LOG_SOURCE" env-default:"false"`
 }
 
 type ServerAddress struct {
@@ -30,12 +38,18 @@ type StorageConfig struct {
 	// Dir for target files
 	Path string `env:"STORAGE_PATH"`
 
+	// Time interval when run storage cleaner / Time to Start Storage Cleanup
+	// Valid time units "s", "m", "h".
+	CleanupInterval time.Duration `env:"STORAGE_CLEANUP_INTERVAL" env-default:"1h"`
+
 	// The maximum amount of time a file should be held in cache.
 	// 1m - a month 2w - 2 weeks, 10d - 10 days
-	MaxAge string `env:"STORAGE_MAX_AGE" env-default:"2w"`
+	// Valid time units "d", "w", "m".
+	FileTTL string `env:"STORAGE_FILE_TTL" env-default:"2w"`
 
-	// The amount of disk space the container should use for caching data. Specified in gigabytes.
+	// The amount of disk space that a container can use for data caching. Set a maximum disk space limit to 80%.
 	// 1T - 1TB, 100G - 100GB, 10000M - 10000MB
+	// Valid time units "M", "G", "T".
 	DiskSize string `env:"STORAGE_DISK_SIZE" env-default:"512G"`
 
 	// Set Storage cache ttl in minutes
@@ -71,7 +85,7 @@ func Load() Config {
 
 	err := godotenv.Load()
 	if err != nil {
-		panic("Error loading .env file" + err.Error())
+		fmt.Println("Error loading .env file - " + err.Error())
 	}
 
 	err = cleanenv.ReadEnv(&cfg)
