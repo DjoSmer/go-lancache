@@ -19,50 +19,74 @@ import (
 )
 
 func main() {
+	config := config.Load()
+
+	var level slog.Level
+	err := level.UnmarshalText([]byte(config.Log.Level))
+	if err != nil {
+		level = slog.LevelInfo
+	}
+
+	ctx := context.Background()
+
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		AddSource: true,
-		Level:     slog.LevelDebug,
+		AddSource: config.Log.AddSource,
+		Level:     level,
 	}))
 
+	log.Info("Lancache Running...")
 	slog.SetDefault(log)
-
-	config := config.Load()
 
 	db := database.New(config.DBConfig)
 
-	tr := target.NewDBTargetRepository(db)
-	ts := target.NewTargetService(tr, config.Target)
-	ts.Load()
+	targetRepository := target.NewTargetRepository(db)
+	targetService := target.NewTargetService(targetRepository, config.Target)
+	targetService.Load()
 
-	sr := storage.NewStorageRepository(db)
-	sc := storage.NewStorageCache(time.Duration(config.Storage.CacheTTL) * time.Minute)
-	ss := storage.NewStorageService(sr, sc, config.Storage)
-
-	sc.OnEvict = func(s storage.Storage) {
-		sr.Save(s)
+	storageRepository := storage.NewStorageRepository(db)
+	storageCleaner := storage.NewStorageCleaner(storageRepository, config.Storage)
+	_, err = storageCleaner.CalculateStorageSize()
+	if err != nil {
+		panic(err)
 	}
-	sc.Start()
+	storageCleaner.Start(ctx)
 
-	pp := proxy.NewProxyRoute()
+	storageCache := storage.NewStorageCache(time.Duration(config.Storage.CacheTTL) * time.Minute)
+	storageService := storage.NewStorageService(storageRepository, storageCache, config.Storage)
 
-	ad := lancache.NewAnomalyDetector(config.AnomalyDetector, time.Duration(config.AnomalyDetector.HistoryTTL)*time.Second, time.Duration(config.AnomalyDetector.CleanupTimeTicker)*time.Second)
-	ad.Start()
-	lr := lancache.NewLancacheRoute(ss, ts, pp, ad)
+	storageCache.OnEvict = func(s storage.Storage) {
+		storageRepository.Save(ctx, s)
+	}
+	storageCache.Start(ctx)
 
-	r := route.NewRoute()
-	r.AddRoute(lr)
-	r.AddRoute(pp)
+	proxyRoute := proxy.NewProxyRoute()
+
+	anomalyDetector := lancache.NewAnomalyDetector(config.AnomalyDetector, time.Duration(config.AnomalyDetector.HistoryTTL)*time.Second, time.Duration(config.AnomalyDetector.CleanupTimeTicker)*time.Second)
+	anomalyDetector.Start(ctx)
+	lancacheRoute := lancache.NewLancacheRoute(storageService, targetService, proxyRoute, anomalyDetector)
+
+	route := route.NewRoute()
+	route.AddRoute(lancacheRoute)
+	route.AddRoute(proxyRoute)
 
 	server := webserver.NewServer(config)
-	server.Run(context.Background(), r)
+	errors := server.Run(ctx, route)
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
-	<-stop
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	select {
+	case signal := <-signals:
+		log.Info("Lancache Shutdown", "signal", signal)
+	case serveErr := <-errors:
+		log.Error("Listener failed", "error", serveErr)
+	}
 
-	server.Close()
-	sc.Stop()
-	ad.Stop()
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 
-	sc.EvictAll()
+	server.Shutdown(ctx)
+	storageCleaner.Stop()
+	anomalyDetector.Stop()
+	storageCache.EvictAll(ctx)
+
 }
