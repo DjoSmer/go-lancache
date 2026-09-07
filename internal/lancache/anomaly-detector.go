@@ -3,6 +3,7 @@
 package lancache
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -44,8 +45,8 @@ func NewAnomalyDetector(config config.AnomalyDetectorConfig, historyTTL time.Dur
 	return detector
 }
 
-func (d *AnomalyDetector) Start() {
-	go d.cleanupLoop()
+func (d *AnomalyDetector) Start(ctx context.Context) {
+	go d.cleanupLoop(ctx)
 }
 
 func (d *AnomalyDetector) Stop() {
@@ -150,7 +151,7 @@ func (d *AnomalyDetector) Get(ip, key string) (history, error) {
 	return *h, nil
 }
 
-func (d *AnomalyDetector) cleanupLoop() {
+func (d *AnomalyDetector) cleanupLoop(ctx context.Context) {
 	log := d.log("cleanupLoop")
 	ticker := time.NewTicker(d.cleanupTimeTicker)
 
@@ -178,6 +179,8 @@ func (d *AnomalyDetector) cleanupLoop() {
 			d.mu.Unlock()
 
 		case <-d.stopWorker:
+			return
+		case <-ctx.Done():
 			return
 		}
 	}

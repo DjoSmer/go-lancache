@@ -1,6 +1,7 @@
 package lancache_test
 
 import (
+	"context"
 	"math/rand"
 	"strconv"
 	"sync"
@@ -30,7 +31,7 @@ func getDetector(ttl, max, timeTicker int) *lancache.AnomalyDetector {
 
 func Test_SimpleDetect(t *testing.T) {
 	detector := getDetector(60000, 3, 120000)
-	detector.Start()
+	detector.Start(context.Background())
 	defer detector.Stop()
 
 	res := detector.Detect(defIp, defKey)
@@ -39,7 +40,7 @@ func Test_SimpleDetect(t *testing.T) {
 
 func Test_CheckDetectIp(t *testing.T) {
 	detector := getDetector(60000, 2, 120000)
-	detector.Start()
+	detector.Start(context.Background())
 	defer detector.Stop()
 
 	res := detector.Detect(defIp, defKey)
@@ -55,7 +56,7 @@ func Test_CheckDetectIp(t *testing.T) {
 
 func TestCleanup(t *testing.T) {
 	detector := getDetector(2000, 3, 5000)
-	detector.Start()
+	detector.Start(context.Background())
 	defer detector.Stop()
 
 	for i := range 100 {
@@ -69,7 +70,7 @@ func TestCleanup(t *testing.T) {
 
 func Test_Expiration(t *testing.T) {
 	detector := getDetector(300, 3, 200)
-	detector.Start()
+	detector.Start(context.Background())
 	defer detector.Stop()
 
 	res := detector.Detect(defIp, defKey)
@@ -91,7 +92,7 @@ func Test_Expiration(t *testing.T) {
 
 func TestCleanup_NotRemoveLive(t *testing.T) {
 	detector := getDetector(100, 3, 200)
-	detector.Start()
+	detector.Start(context.Background())
 	defer detector.Stop()
 
 	res := detector.Detect(defIp, defKey)
@@ -106,7 +107,7 @@ func TestCleanup_NotRemoveLive(t *testing.T) {
 
 func TestCleanup_CheckLastFinished(t *testing.T) {
 	detector := getDetector(300, 3, 200)
-	detector.Start()
+	detector.Start(context.Background())
 	defer detector.Stop()
 
 	res := detector.Detect(defIp, defKey)
@@ -135,7 +136,7 @@ func Test_Stress(t *testing.T) {
 	}
 
 	detector := getDetector(60000, 3, 120000)
-	detector.Start()
+	detector.Start(context.Background())
 	defer detector.Stop()
 
 	var wg sync.WaitGroup
@@ -159,7 +160,7 @@ func Test_Stress(t *testing.T) {
 
 func BenchmarkTrack(b *testing.B) {
 	detector := getDetector(60000, 3, 120000)
-	detector.Start()
+	detector.Start(context.Background())
 	defer detector.Stop()
 
 	for i := 0; i < b.N; i++ {
@@ -193,7 +194,7 @@ func BenchmarkTrack(b *testing.B) {
 
 func BenchmarkTrackParallel(b *testing.B) {
 	detector := getDetector(60000, 3, 120000)
-	detector.Start()
+	detector.Start(context.Background())
 	defer detector.Stop()
 
 	var counter atomic.Uint64
@@ -215,7 +216,7 @@ func BenchmarkTrackParallel(b *testing.B) {
 
 func BenchmarkTrackSameIP(b *testing.B) {
 	detector := getDetector(60000, 3, 120000)
-	detector.Start()
+	detector.Start(context.Background())
 	defer detector.Stop()
 
 	var counter atomic.Uint64
