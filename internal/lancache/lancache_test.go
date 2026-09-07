@@ -85,7 +85,14 @@ func TestLancache_AfterResponse(t *testing.T) {
 	fileMock := &mockFile{buf: new(bytes.Buffer)}
 	lancache.StorageFile = fileMock
 
-	lancache.AfterResponse(nil, nil)
+	proxy := &proxy.Proxy{
+		Ctx:       context.Background(),
+		RequestId: 22,
+		Req:       &http.Request{URL: &url.URL{Path: "/game/patch.bin"}},
+		Resp:      &http.Response{},
+	}
+
+	lancache.AfterResponse(proxy, nil)
 
 	assert.False(t, fileMock.closeCalled)
 	assert.False(t, fileMock.removeCalled)
@@ -100,8 +107,15 @@ func TestLancache_AfterResponse_HandlesError(t *testing.T) {
 	fileMock := &mockFile{buf: new(bytes.Buffer)}
 	lancache.StorageFile = fileMock
 
+	proxy := &proxy.Proxy{
+		Ctx:       context.Background(),
+		RequestId: 33,
+		Req:       &http.Request{URL: &url.URL{Path: "/game/patch.bin"}},
+		Resp:      &http.Response{},
+	}
+
 	simulatedError := errors.New("network timeout")
-	lancache.AfterResponse(nil, simulatedError)
+	lancache.AfterResponse(proxy, simulatedError)
 
 	assert.True(t, fileMock.closeCalled)
 	assert.True(t, fileMock.removeCalled)

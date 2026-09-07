@@ -26,18 +26,35 @@ func (l *lancache) BeforeRequest(proxy *proxy.Proxy) {}
 
 func (l *lancache) InterceptResponse(proxy *proxy.Proxy) {
 	log := l.log("InterceptResponse")
+
+	if proxy == nil {
+		log.Warn("Proxy is nil")
+		return
+	}
+
 	log.Debug("Run", slog.String("url", proxy.Req.URL.Path))
 
 	reader := proxy.Resp.Body
-	l.StorageFile = l.storageService.CreateFile(l.storage, true)
+	storageFile, err := l.storageService.GetFile(l.storage)
+	if err != nil {
+		log.Error("Storage GetFile", "BasePath", l.storage.BasePath, "error", err.Error())
+		return
+	}
+	l.StorageFile = storageFile
 	l.tee = io.TeeReader(reader, l.StorageFile)
 	proxy.Resp.Body = l
 }
 
 func (l *lancache) AfterResponse(proxy *proxy.Proxy, err error) {
 	log := l.log("AfterResponse")
-	log.Debug("Run", slog.String("url", proxy.Req.URL.Path))
 
+	if proxy == nil {
+		log.Warn("Proxy is nil")
+		return
+	}
+
+	log.Debug("Run", slog.String("url", proxy.Req.URL.Path))
+	//TODO add Content-Length check
 	if err != nil {
 		log.Debug("Error: " + err.Error())
 
@@ -48,7 +65,7 @@ func (l *lancache) AfterResponse(proxy *proxy.Proxy, err error) {
 		}
 	}
 
-	l.storageService.Release(l.storage, err)
+	l.storageService.Release(proxy.Ctx, l.storage, err)
 }
 
 func (l *lancache) Read(p []byte) (n int, err error) {
@@ -57,6 +74,9 @@ func (l *lancache) Read(p []byte) (n int, err error) {
 }
 
 func (l *lancache) Close() error {
+	if l.StorageFile == nil {
+		return nil
+	}
 	return l.StorageFile.Close()
 }
 
