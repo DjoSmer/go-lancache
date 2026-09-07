@@ -2,8 +2,8 @@ package target_test
 
 import (
 	"context"
+	"io"
 	"log/slog"
-	"os"
 	"testing"
 
 	"go-lancache/internal/config"
@@ -87,8 +87,8 @@ func TestGet_MatchHostOrSubdomain(t *testing.T) {
 }
 
 func init() {
-	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+	log := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{
+		Level: slog.LevelError,
 	}))
 
 	slog.SetDefault(log)
