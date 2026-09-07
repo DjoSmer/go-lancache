@@ -3,10 +3,14 @@ package storage
 import "fmt"
 
 func (c *StorageCache) GetFirst() *cacheNode {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.first
 }
 
 func (c *StorageCache) GetLast() *cacheNode {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.last
 }
 
@@ -36,7 +40,7 @@ func (c *StorageCache) ValidateList() error {
 			if prev != nil {
 				prevKey = prev.Key
 			}
-			return fmt.Errorf("broken prev link %s => %s", curPrevKey, prevKey)
+			return fmt.Errorf("broken prev link %s -> %s => %s", cur.Key, curPrevKey, prevKey)
 		}
 
 		prev = cur

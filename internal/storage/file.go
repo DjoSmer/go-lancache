@@ -2,6 +2,7 @@ package storage
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -15,18 +16,16 @@ type StorageFile interface {
 }
 
 type storageFile struct {
-	fs       *os.File
-	isWrite  bool
+	file     *os.File
 	filepath string
 }
 
-func NewStorageFile(s *Storage, storagePath string, write bool) *storageFile {
+func NewStorageFile(s *Storage, storagePath string) (*storageFile, error) {
 	op := "StorageFile"
 	log := slog.Default().With(slog.String("op", op))
 
 	basePath := s.BasePath
 	ext := path.Ext(basePath)
-
 	if ext == "" {
 		basePath = basePath + ".file"
 	}
@@ -37,62 +36,64 @@ func NewStorageFile(s *Storage, storagePath string, write bool) *storageFile {
 		dir := path.Dir(filepath)
 		err := os.MkdirAll(dir, 0775)
 		if errors.Is(err, syscall.ENOTDIR) {
-			log.Warn("Is not dir: " + dir)
-			// TODO if it's not dir should delete this?
-			// err := os.Remove(dir)
-			// if err != nil {
-			// 	log.Warn("Cannot remove: " + dir)
-			// 	return nil
-			// }
-			// err = os.MkdirAll(dir, os.ModeDir)
-			// if err != nil {
-			// 	log.Warn("Cannot mkdir: " + dir)
-			// 	return nil
-			// }
+			log.Warn("Is not dir", "dir", dir, "filepath", filepath)
+			err := os.Remove(dir)
+			if err != nil {
+				return nil, fmt.Errorf("Remove dir %s: %w", filepath, err)
+			}
+			err = os.MkdirAll(dir, 0775)
+			if err != nil {
+				return nil, fmt.Errorf("Mkdir %s: %w", filepath, err)
+			}
 		}
 	}
 
-	flag := os.O_RDONLY
-	if write {
-		flag = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-	}
-
+	flag := os.O_RDONLY | os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 	fs, err := os.OpenFile(filepath, flag, 0666)
 	if err != nil {
-		log.Warn("Open file %s: %w", filepath, err)
-		return nil
+		return nil, fmt.Errorf("Open file %s: %w", filepath, err)
 	}
 
 	return &storageFile{
-		fs:       fs,
-		isWrite:  write,
 		filepath: filepath,
-	}
+		file:     fs,
+	}, nil
 }
 
 func (f *storageFile) Read(b []byte) (int, error) {
-	n, err := f.fs.Read(b)
+	n, err := f.file.Read(b)
 	return n, err
 }
 
 func (f *storageFile) Write(b []byte) (int, error) {
-	n, err := f.fs.Write(b)
+	n, err := f.file.Write(b)
 	return n, err
 }
 
 func (f *storageFile) Close() error {
-	if f.fs == nil {
+	if f.file == nil {
 		return nil
 	}
 
-	err := f.fs.Close()
+	err := f.file.Close()
 	if err == nil {
-		f.fs = nil
+		f.file = nil
 	}
 
 	return err
 }
 
 func (f *storageFile) Remove() error {
-	return os.Remove(f.filepath)
+	err := os.Remove(f.filepath)
+
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+
+	return err
+}
+
+func (f *storageFile) log(name string) *slog.Logger {
+	op := "StorageFile." + name
+	return slog.Default().With(slog.String("op", op))
 }

@@ -1,6 +1,7 @@
 package storage_test
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -24,14 +25,13 @@ func TestGet_NotFound(t *testing.T) {
 }
 
 func Test_SetGet(t *testing.T) {
-	key := "key"
 	s1 := storage.Storage{
 		BasePath: "second",
 	}
 
-	cache.Set(key, s1)
+	cache.Set(s1.BasePath, s1)
 
-	s2, ok := cache.Get(key)
+	s2, ok := cache.Get(s1.BasePath)
 	assert.True(t, ok)
 	assert.Equal(t, s1.BasePath, s2.BasePath)
 }
@@ -87,7 +87,7 @@ func TestUpdate_NotFound(t *testing.T) {
 	require.Nil(t, updated)
 }
 
-func Test_FirstLast(t *testing.T) {
+func Test_FirstLast_one_item(t *testing.T) {
 	cache := storage.NewStorageCache(time.Minute)
 
 	s := storage.Storage{
@@ -102,6 +102,86 @@ func Test_FirstLast(t *testing.T) {
 	assert.Equal(t, first.Key, s.BasePath)
 	assert.Equal(t, last.Key, s.BasePath)
 	assert.Same(t, first, last)
+
+	cache.Get(s.BasePath)
+	require.Nil(t, first.Next)
+	require.Nil(t, first.Prev)
+}
+
+func Test_FirstLast_two_items(t *testing.T) {
+	cache := storage.NewStorageCache(time.Minute)
+
+	s1 := storage.Storage{
+		BasePath: "first",
+	}
+	cache.Set(s1.BasePath, s1)
+	s2 := storage.Storage{
+		BasePath: "second",
+	}
+	cache.Set(s2.BasePath, s2)
+
+	first := cache.GetFirst()
+	last := cache.GetLast()
+	require.Equal(t, first.Key, s1.BasePath)
+	require.Equal(t, last.Key, s2.BasePath)
+
+	require.Nil(t, first.Prev)
+	require.Nil(t, last.Next)
+	require.Equal(t, first.Next.Key, s2.BasePath)
+	require.Equal(t, last.Prev.Key, s1.BasePath)
+
+	cache.Get(s1.BasePath)
+	first = cache.GetFirst()
+	last = cache.GetLast()
+	require.Equal(t, first.Key, s2.BasePath)
+	require.Equal(t, last.Key, s1.BasePath)
+
+	require.Nil(t, first.Prev)
+	require.Nil(t, last.Next)
+	require.Equal(t, first.Next.Key, s1.BasePath)
+	require.Equal(t, last.Prev.Key, s2.BasePath)
+}
+
+func Test_FirstLast_three_items(t *testing.T) {
+	cache := storage.NewStorageCache(time.Minute)
+
+	s1 := storage.Storage{
+		BasePath: "first",
+	}
+	cache.Set(s1.BasePath, s1)
+	s2 := storage.Storage{
+		BasePath: "second",
+	}
+	cache.Set(s2.BasePath, s2)
+	s3 := storage.Storage{
+		BasePath: "third",
+	}
+	cache.Set(s3.BasePath, s3)
+
+	first := cache.GetFirst()
+	last := cache.GetLast()
+	require.Equal(t, first.Key, s1.BasePath)
+	require.Equal(t, last.Key, s3.BasePath)
+
+	require.Nil(t, first.Prev)
+	require.Nil(t, last.Next)
+	require.Equal(t, first.Next.Key, s2.BasePath)
+	require.Equal(t, last.Prev.Key, s2.BasePath)
+	require.Equal(t, first.Next.Prev.Key, s1.BasePath)
+	require.Equal(t, first.Next.Next.Key, s3.BasePath)
+
+	cache.Get(s2.BasePath)
+	first = cache.GetFirst()
+	last = cache.GetLast()
+	require.Equal(t, first.Key, s1.BasePath)
+	require.Equal(t, last.Key, s2.BasePath)
+
+	require.Nil(t, first.Prev)
+	require.Nil(t, last.Next)
+	require.Equal(t, first.Next.Key, s3.BasePath)
+	require.Equal(t, last.Prev.Key, s3.BasePath)
+	require.Equal(t, first.Next.Prev.Key, s1.BasePath)
+	require.Equal(t, first.Next.Next.Key, s2.BasePath)
 }
 
 func TestFirstLast_Orders(t *testing.T) {
@@ -197,9 +277,32 @@ func TestFirstLast_MoveFirst(t *testing.T) {
 	require.Nil(t, last.Next)
 }
 
+func TestFirstLast_MoveLast(t *testing.T) {
+	cache := storage.NewStorageCache(time.Minute)
+
+	for i := range 20 {
+		s := storage.Storage{
+			BasePath: "key" + strconv.Itoa(i),
+		}
+		cache.Set(s.BasePath, s)
+	}
+
+	cache.Get("key19")
+
+	first := cache.GetFirst()
+	require.Equal(t, "key0", first.Key)
+	require.Equal(t, "key1", first.Next.Key)
+	require.Nil(t, first.Prev)
+
+	last := cache.GetLast()
+	require.Equal(t, "key19", last.Key)
+	require.Equal(t, "key18", last.Prev.Key)
+	require.Nil(t, last.Next)
+}
+
 func Test_Expiration(t *testing.T) {
 	cache := storage.NewStorageCache(time.Second)
-	cache.Start()
+	cache.Start(context.Background())
 	defer cache.Stop()
 
 	cache.Set("key", storage.Storage{
@@ -214,7 +317,7 @@ func Test_Expiration(t *testing.T) {
 
 func TestUpdate_UpTime(t *testing.T) {
 	cache := storage.NewStorageCache(time.Second)
-	cache.Start()
+	cache.Start(context.Background())
 	defer cache.Stop()
 
 	cache.Set("key", storage.Storage{
@@ -237,7 +340,7 @@ func TestUpdate_UpTime(t *testing.T) {
 
 func TestGet_UpTime(t *testing.T) {
 	cache := storage.NewStorageCache(300 * time.Millisecond)
-	cache.Start()
+	cache.Start(context.Background())
 	defer cache.Stop()
 
 	cache.Set("key", storage.Storage{
@@ -257,7 +360,7 @@ func TestGet_UpTime(t *testing.T) {
 
 func TestSet_UpTime(t *testing.T) {
 	cache := storage.NewStorageCache(time.Second)
-	cache.Start()
+	cache.Start(context.Background())
 	defer cache.Stop()
 
 	cache.Set("key", storage.Storage{
@@ -292,8 +395,7 @@ func waitUntil(t *testing.T, fn func() bool) {
 
 func TestUncache_All(t *testing.T) {
 	cache := storage.NewStorageCache(time.Second)
-	cache.Start()
-	defer cache.Stop()
+	cache.Start(context.Background())
 
 	for i := range 100 {
 		s := storage.Storage{
@@ -312,6 +414,7 @@ func TestUncache_All(t *testing.T) {
 	}
 
 	time.Sleep(1200 * time.Millisecond)
+	cache.Stop()
 
 	require.Nil(t, cache.GetFirst())
 	require.Nil(t, cache.GetLast())
@@ -319,7 +422,7 @@ func TestUncache_All(t *testing.T) {
 
 func TestUncache_OrderValidate(t *testing.T) {
 	cache := storage.NewStorageCache(time.Second)
-	cache.Start()
+	cache.Start(context.Background())
 
 	for i := range 100 {
 		s := storage.Storage{
@@ -381,16 +484,18 @@ func TestUncache_OrderValidate(t *testing.T) {
 }
 
 func TestUncache_OnEvict(t *testing.T) {
-	var wg sync.WaitGroup
+	// var wg sync.WaitGroup
+	chEvictKeys := make(chan string)
 	visited := make(map[string]struct{}, 50)
 
 	cache := storage.NewStorageCache(time.Second)
 	cache.OnEvict = func(s storage.Storage) {
-		defer wg.Done()
-		_, ok := visited[s.BasePath]
-		require.False(t, ok)
+		// defer wg.Done()
+		// _, ok := visited[s.BasePath]
+		// require.False(t, ok)
+		chEvictKeys <- s.BasePath
 	}
-	cache.Start()
+	cache.Start(context.Background())
 	defer cache.Stop()
 
 	for i := range 100 {
@@ -409,8 +514,18 @@ func TestUncache_OnEvict(t *testing.T) {
 		visited[key] = struct{}{}
 	}
 
-	wg.Add(100 - len(visited))
-	wg.Wait()
+	count := 100 - len(visited)
+	for key := range chEvictKeys {
+		_, ok := visited[key]
+		require.False(t, ok)
+		count--
+		if count == 0 {
+			close(chEvictKeys)
+		}
+	}
+
+	// wg.Add(100 - len(visited))
+	// wg.Wait()
 
 }
 
@@ -513,7 +628,7 @@ func Test_ListIntegrityConcurrent(t *testing.T) {
 
 func Test_CountMatchesList(t *testing.T) {
 	cache := storage.NewStorageCache(time.Hour)
-	cache.Start()
+	cache.Start(context.Background())
 	defer cache.Stop()
 
 	for i := range 1000 {
@@ -543,7 +658,7 @@ func Test_Stress(t *testing.T) {
 	}
 
 	cache := storage.NewStorageCache(5 * time.Second)
-	cache.Start()
+	cache.Start(context.Background())
 	defer cache.Stop()
 
 	var wg sync.WaitGroup
@@ -584,4 +699,5 @@ func init() {
 	}))
 
 	slog.SetDefault(log)
+	cache.Start(context.Background())
 }

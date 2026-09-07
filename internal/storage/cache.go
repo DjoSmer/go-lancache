@@ -1,27 +1,24 @@
 package storage
 
 import (
+	"context"
 	"log/slog"
 	"sync"
 	"time"
 )
 
-type cacheItem struct {
+type cacheNode struct {
+	Key       string
 	value     Storage
 	createdAt time.Time
 	expiresAt time.Time
-	node      *cacheNode
-}
-type cacheNode struct {
-	Key       string
 	Prev      *cacheNode
 	Next      *cacheNode
-	expiresAt time.Time
 }
 
 type StorageCache struct {
 	mu         sync.Mutex
-	items      map[string]*cacheItem
+	items      map[string]*cacheNode
 	first      *cacheNode
 	last       *cacheNode
 	ttl        time.Duration
@@ -33,7 +30,7 @@ var defaultItemsSize = 10000
 
 func NewStorageCache(ttl time.Duration) *StorageCache {
 	cache := &StorageCache{
-		items:      make(map[string]*cacheItem, defaultItemsSize),
+		items:      make(map[string]*cacheNode, defaultItemsSize),
 		ttl:        ttl,
 		stopWorker: make(chan struct{}),
 	}
@@ -41,17 +38,20 @@ func NewStorageCache(ttl time.Duration) *StorageCache {
 	return cache
 }
 
-func (c *StorageCache) EvictAll() {
+func (c *StorageCache) EvictAll(ctx context.Context) {
 	c.mu.Lock()
 
 	items := c.items
-	c.items = make(map[string]*cacheItem, defaultItemsSize)
+	c.items = make(map[string]*cacheNode, defaultItemsSize)
 	c.first = nil
 	c.last = nil
 
 	c.mu.Unlock()
 
 	for _, item := range items {
+		if ctx.Err() != nil {
+			return
+		}
 		c.OnEvict(item.value)
 	}
 }
@@ -64,7 +64,7 @@ func (c *StorageCache) Get(key string) (Storage, bool) {
 
 	item, ok := c.items[key]
 	if ok {
-		c.upItem(key, item)
+		c.upItem(item)
 		log.Debug("Get: " + key)
 		return item.value, ok
 	}
@@ -80,7 +80,8 @@ func (c *StorageCache) Set(key string, storage Storage) {
 
 	item, ok := c.items[key]
 	if !ok {
-		item = &cacheItem{
+		item = &cacheNode{
+			Key:       key,
 			createdAt: time.Now(),
 		}
 	}
@@ -88,7 +89,7 @@ func (c *StorageCache) Set(key string, storage Storage) {
 	item.value = storage
 	log.Debug("Set: " + key)
 
-	c.upItem(key, item)
+	c.upItem(item)
 	c.items[key] = item
 }
 
@@ -111,7 +112,7 @@ func (c *StorageCache) Update(key string, updateFn func(s *Storage) *Storage) *S
 	if newStorage != nil {
 		log.Debug("Updated", slog.Any("old", oldStorage), slog.Any("new", newStorage))
 		item.value = *newStorage
-		c.upItem(key, item)
+		c.upItem(item)
 
 		return newStorage
 	}
@@ -119,12 +120,14 @@ func (c *StorageCache) Update(key string, updateFn func(s *Storage) *Storage) *S
 	return &storage
 }
 
-func (c *StorageCache) startNodeWorker() {
+func (c *StorageCache) startNodeWorker(ctx context.Context) {
 	log := c.log("startNodeWorker")
 
 	for {
 		select {
 		case <-c.stopWorker:
+			return
+		case <-ctx.Done():
 			return
 		default:
 		}
@@ -146,9 +149,11 @@ func (c *StorageCache) startNodeWorker() {
 
 		if node.expiresAt.After(time.Now()) {
 			select {
+			case <-time.After(time.Until(node.expiresAt) + (100 * time.Millisecond)):
 			case <-c.stopWorker:
 				return
-			case <-time.After(time.Until(node.expiresAt) + (100 * time.Millisecond)):
+			case <-ctx.Done():
+				return
 			}
 		}
 
@@ -193,54 +198,49 @@ func (c *StorageCache) startNodeWorker() {
 	}
 }
 
-func (c *StorageCache) Start() {
-	go c.startNodeWorker()
+func (c *StorageCache) Start(ctx context.Context) {
+	go c.startNodeWorker(ctx)
 }
 
 func (c *StorageCache) Stop() {
 	close(c.stopWorker)
 }
 
-func (c *StorageCache) upItem(key string, item *cacheItem) {
+func (c *StorageCache) upItem(item *cacheNode) {
 	item.expiresAt = time.Now().Add(c.ttl)
 
-	if item.node == nil {
-		item.node = &cacheNode{
-			Key:       key,
-			expiresAt: item.expiresAt,
-			Prev:      c.last,
-		}
-	}
-	item.node.expiresAt = item.expiresAt
-
-	if item.node == c.last {
+	if item == c.last {
 		return
 	}
 
-	if c.first == item.node {
-		c.first = item.node.Next
+	if item.Prev == nil && item.Next == nil {
+		item.Prev = c.last
+	}
+
+	if c.first == item {
+		c.first = item.Next
 	}
 
 	if c.first == nil {
-		c.first = item.node
+		c.first = item
 	}
 
-	if item.node.Prev != nil {
-		item.node.Prev.Next = item.node.Next
+	if item.Prev != nil {
+		item.Prev.Next = item.Next
 	}
 
-	if item.node.Next != nil {
-		item.node.Next.Prev = item.node.Prev
-		item.node.Next = nil
+	if item.Next != nil {
+		item.Next.Prev = item.Prev
+		item.Next = nil
 	}
 
-	item.node.Prev = c.last
+	item.Prev = c.last
 
 	if c.last != nil {
-		c.last.Next = item.node
+		c.last.Next = item
 	}
 
-	c.last = item.node
+	c.last = item
 	c.last.Next = nil
 }
 

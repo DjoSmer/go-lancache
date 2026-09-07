@@ -10,13 +10,18 @@ import (
 	"go-lancache/internal/config"
 )
 
+type StorageServiceRepository interface {
+	FindByBasePath(context.Context, string) (Storage, error)
+	Save(context.Context, Storage) (Storage, error)
+}
+
 type StorageService struct {
 	config config.StorageConfig
-	repo   *StorageRepository
+	repo   StorageServiceRepository
 	cache  *StorageCache
 }
 
-func NewStorageService(repo *StorageRepository, cache *StorageCache, config config.StorageConfig) *StorageService {
+func NewStorageService(repo StorageServiceRepository, cache *StorageCache, config config.StorageConfig) *StorageService {
 	return &StorageService{
 		cache:  cache,
 		repo:   repo,
@@ -64,8 +69,9 @@ func (ss *StorageService) Get(ctx context.Context, basePath string) (*Storage, e
 	return &storage, nil
 }
 
-func (ss *StorageService) CreateFile(storage *Storage, write bool) StorageFile {
-	return NewStorageFile(storage, ss.config.Path, write)
+func (ss *StorageService) GetFile(storage *Storage) (StorageFile, error) {
+	sf, err := NewStorageFile(storage, ss.config.Path)
+	return sf, err
 }
 
 func (ss *StorageService) IncreaseDownloadCount(storage *Storage) *Storage {
@@ -90,7 +96,7 @@ func (ss *StorageService) Lock(storage *Storage) (*Storage, bool) {
 	return storage, result
 }
 
-func (ss *StorageService) Release(storage *Storage, err error) *Storage {
+func (ss *StorageService) Release(ctx context.Context, storage *Storage, err error) *Storage {
 	storage = ss.cache.Update(storage.BasePath, func(storage *Storage) *Storage {
 		if err == nil {
 			storage.SetStatus(StorageStatusSuccess)
@@ -100,7 +106,7 @@ func (ss *StorageService) Release(storage *Storage, err error) *Storage {
 		return storage
 	})
 
-	ss.Save(*storage)
+	ss.Save(ctx, *storage)
 	return storage
 }
 
@@ -112,10 +118,10 @@ func (ss *StorageService) MarkAsCorrupted(storage *Storage) *Storage {
 	return storage
 }
 
-func (ss *StorageService) Save(storage Storage) {
+func (ss *StorageService) Save(ctx context.Context, storage Storage) {
 	log := ss.log("Save")
 
-	storage, err := ss.repo.Save(storage)
+	storage, err := ss.repo.Save(ctx, storage)
 	if err != nil {
 		log.Error("Cannot save storage: " + err.Error())
 		return
