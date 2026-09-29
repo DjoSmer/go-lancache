@@ -12,11 +12,13 @@ import (
 
 type StorageFile interface {
 	io.ReadWriteCloser
+	io.Seeker
+	Stat() (os.FileInfo, error)
 	Remove() error
 }
 
 type storageFile struct {
-	file     *os.File
+	*os.File
 	filepath string
 }
 
@@ -49,38 +51,15 @@ func NewStorageFile(s *Storage, storagePath string) (*storageFile, error) {
 	}
 
 	flag := os.O_RDONLY | os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-	fs, err := os.OpenFile(filepath, flag, 0666)
+	file, err := os.OpenFile(filepath, flag, 0666)
 	if err != nil {
 		return nil, fmt.Errorf("Open file %s: %w", filepath, err)
 	}
 
 	return &storageFile{
 		filepath: filepath,
-		file:     fs,
+		File:     file,
 	}, nil
-}
-
-func (f *storageFile) Read(b []byte) (int, error) {
-	n, err := f.file.Read(b)
-	return n, err
-}
-
-func (f *storageFile) Write(b []byte) (int, error) {
-	n, err := f.file.Write(b)
-	return n, err
-}
-
-func (f *storageFile) Close() error {
-	if f.file == nil {
-		return nil
-	}
-
-	err := f.file.Close()
-	if err == nil {
-		f.file = nil
-	}
-
-	return err
 }
 
 func (f *storageFile) Remove() error {
