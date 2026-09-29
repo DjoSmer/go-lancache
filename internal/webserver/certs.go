@@ -78,8 +78,8 @@ func (c *Certs) GetCertificate(chi *tls.ClientHelloInfo) (*tls.Certificate, erro
 
 func (c *Certs) Get(hostname string) (*tls.Certificate, bool) {
 	c.mu.RLock()
+	defer c.mu.RUnlock()
 	cert, ok := c.certs[hostname]
-	c.mu.RUnlock()
 	return cert, ok
 }
 
@@ -93,8 +93,8 @@ func (c *Certs) CreateCert(hostname string) (*tls.Certificate, error) {
 	}
 
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.certs[hostname] = cert
-	c.mu.Unlock()
 
 	return cert, nil
 }
