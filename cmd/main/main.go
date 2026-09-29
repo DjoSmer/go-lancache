@@ -63,7 +63,7 @@ func main() {
 
 	anomalyDetector := lancache.NewAnomalyDetector(config.AnomalyDetector, time.Duration(config.AnomalyDetector.HistoryTTL)*time.Second, time.Duration(config.AnomalyDetector.CleanupTimeTicker)*time.Second)
 	anomalyDetector.Start(ctx)
-	lancacheRoute := lancache.NewLancacheRoute(storageService, targetService, proxyRoute, anomalyDetector)
+	lancacheRoute := lancache.NewLancacheRoute(ctx, storageService, targetService, proxyRoute, anomalyDetector)
 
 	route := route.NewRoute()
 	route.AddRoute(lancacheRoute)
