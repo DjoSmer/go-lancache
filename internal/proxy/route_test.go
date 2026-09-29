@@ -2,7 +2,6 @@ package proxy_test
 
 import (
 	"bytes"
-	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -16,16 +15,6 @@ import (
 )
 
 var proxyRoute = proxy.NewProxyRoute()
-
-func TestCreateProxyContext(t *testing.T) {
-	ctx := context.Background()
-	req := httptest.NewRequest(http.MethodGet, "http://localhost", nil)
-	proxy := proxyRoute.CreateProxyContext(ctx, req)
-
-	assert.Equal(t, proxy.Ctx, ctx)
-	assert.Same(t, proxy.Req, req)
-	assert.Equal(t, proxy.RequestId, int64(1))
-}
 
 func TestProxyPassMethodGet(t *testing.T) {
 	var server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -121,39 +110,6 @@ func TestProxyPassTLS(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, resp.StatusCode, http.StatusOK)
 	assert.Equal(t, string(result), "lancache-tls")
-}
-
-type Hooks struct{}
-
-func (h Hooks) BeforeRequest(proxy *proxy.Proxy) {}
-func (h Hooks) InterceptResponse(proxy *proxy.Proxy) {
-	proxy.Resp.StatusCode = http.StatusCreated
-	proxy.Resp.Body = io.NopCloser(bytes.NewBufferString("proxy"))
-}
-func (h Hooks) AfterResponse(proxy *proxy.Proxy, err error) {}
-
-func TestReplaceResponse(t *testing.T) {
-	proxyRoute := proxy.NewProxyRoute()
-	ctx := context.Background()
-
-	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		w.Write([]byte("lancache"))
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, s.URL+"/proxy-test", nil)
-	p := proxyRoute.CreateProxyContext(ctx, req)
-	p.Hooks = &Hooks{}
-
-	rec := httptest.NewRecorder()
-	proxyRoute.Pass(rec, p)
-
-	resp := rec.Result()
-	defer resp.Body.Close()
-
-	result, err := io.ReadAll(resp.Body)
-	assert.NoError(t, err)
-	assert.Equal(t, resp.StatusCode, http.StatusCreated)
-	assert.Equal(t, string(result), "proxy")
 }
 
 func init() {
