@@ -1,35 +1,42 @@
 package lancache_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"net/http"
-	"net/url"
+	"os"
 
-	"go-lancache/internal/proxy"
 	"go-lancache/internal/storage"
 	"go-lancache/internal/target"
 )
 
 // MOCK FILE
 type mockFile struct {
-	buf          *bytes.Buffer
+	*os.File
 	closeCalled  bool
 	removeCalled bool
 }
 
-func (m *mockFile) Write(p []byte) (n int, err error) { return m.buf.Write(p) }
-func (m *mockFile) Read(p []byte) (n int, err error)  { return m.buf.Read(p) }
-func (m *mockFile) Close() error                      { m.closeCalled = true; return nil }
-func (m *mockFile) Remove() error                     { m.removeCalled = true; return nil }
+func newMockFile(file *os.File) *mockFile {
+	return &mockFile{
+		File: file,
+	}
+}
+
+func (m *mockFile) Close() error {
+	m.closeCalled = true
+	return m.File.Close()
+}
+func (m *mockFile) Remove() error {
+	m.removeCalled = true
+	return os.Remove(m.Name())
+}
 
 // MOCK STORAGE SERVICE
 type mockStorageService struct {
 	lock          bool
 	lockCalled    bool
 	releaseCalled bool
-	finalStatus   string
 	storage       *storage.Storage
 	fileMock      *mockFile
 }
@@ -57,14 +64,20 @@ func (m *mockStorageService) GetFile(storage *storage.Storage) (storage.StorageF
 }
 func (m *mockStorageService) Lock(storage *storage.Storage) (*storage.Storage, bool) {
 	m.lockCalled = true
-	return nil, m.lock
+	return storage, m.lock
 }
 func (m *mockStorageService) MarkAsCorrupted(storage *storage.Storage) *storage.Storage {
 	return storage
 }
-func (m *mockStorageService) Release(ctx context.Context, storage *storage.Storage, err error) *storage.Storage {
+func (m *mockStorageService) Release(ctx context.Context, s *storage.Storage, err error) *storage.Storage {
 	m.releaseCalled = true
-	return storage
+	if err != nil {
+		s.Status = storage.StorageStatusError
+	} else {
+		s.Status = storage.StorageStatusSuccess
+	}
+	m.storage = s
+	return m.storage
 }
 
 // MOCK TARGET SERVICE
@@ -83,24 +96,13 @@ func (s *mockTargetService) Get(cxt context.Context, host string, userAgent stri
 
 // MOCK PROXY ROUTE
 type mockProxyRoute struct {
-	passFunc func(proxy *proxy.Proxy)
+	handlerCallback func(w http.ResponseWriter)
 }
 
-func (r *mockProxyRoute) CreateProxyContext(ctx context.Context, req *http.Request) *proxy.Proxy {
-	text := "lancache_proxy_test"
-	body := &mockFile{buf: new(bytes.Buffer)}
-	body.Write([]byte(text))
-
-	return &proxy.Proxy{
-		Ctx:       context.Background(),
-		RequestId: 1,
-		Req:       &http.Request{URL: &url.URL{Path: "/game/patch.bin"}},
-		Resp:      &http.Response{Body: body},
+func (r *mockProxyRoute) Handler(w http.ResponseWriter, req *http.Request) bool {
+	if r.handlerCallback == nil {
+		return false
 	}
-}
-func (r *mockProxyRoute) Pass(w http.ResponseWriter, proxy *proxy.Proxy) {
-	if r.passFunc == nil {
-		return
-	}
-	r.passFunc(proxy)
+	r.handlerCallback(w)
+	return true
 }
