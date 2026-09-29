@@ -48,23 +48,23 @@ func (ss *StorageService) Create(basePath string, targetId int) *Storage {
 }
 
 func (ss *StorageService) Get(ctx context.Context, basePath string) (*Storage, error) {
-	log := ss.log("Get")
+	log := ss.log("Get").With(slog.String("basePath", basePath))
 
 	storage, ok := ss.cache.Get(basePath)
 	if ok {
-		log.Debug("Get storage from cache: " + basePath)
+		log.Debug("Get storage from cache")
 		return &storage, nil
 	}
 
 	storage, err := ss.repo.FindByBasePath(ctx, basePath)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			log.Error("Storage repo return error: " + err.Error())
+			log.Error("Storage repo return error", "error", err.Error())
 		}
 		return nil, err
 	}
 
-	log.Debug("Get storage from repo: " + basePath)
+	log.Debug("Get storage from repo")
 	ss.cache.Set(basePath, storage)
 	return &storage, nil
 }
