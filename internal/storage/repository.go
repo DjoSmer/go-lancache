@@ -137,7 +137,10 @@ func (r *StorageRepository) Save(ctx context.Context, storage Storage) (Storage,
 func (r *StorageRepository) add(ctx context.Context, storage *Storage) error {
 	_, err := r.db.ExecContext(
 		ctx,
-		`INSERT INTO storage ("basePath", "createdAt", "updatedAt", "downloadCount", "targetId", "status") VALUES ($1, $2, $3, $4, $5, $6)`,
+		`INSERT INTO storage ("basePath", "createdAt", "updatedAt", "downloadCount", "targetId", "status") 
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT ("basePath") 
+		DO UPDATE SET "updatedAt" = $3, "status" = $6`,
 		storage.BasePath, storage.CreatedAt, storage.UpdatedAt, storage.DownloadCount, storage.TargetId, storage.Status,
 	)
 	if err != nil {
