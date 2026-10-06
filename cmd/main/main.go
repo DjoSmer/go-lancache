@@ -27,7 +27,7 @@ func main() {
 		level = slog.LevelInfo
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		AddSource: config.Log.AddSource,
@@ -55,7 +55,8 @@ func main() {
 	storageService := storage.NewStorageService(storageRepository, storageCache, config.Storage)
 
 	storageCache.OnEvict = func(s storage.Storage) {
-		storageRepository.Save(ctx, s)
+		// if ctx is cancel lancache can't save storage in cache
+		storageRepository.Save(context.TODO(), s)
 	}
 	storageCache.Start(ctx)
 
@@ -63,7 +64,8 @@ func main() {
 
 	anomalyDetector := lancache.NewAnomalyDetector(config.AnomalyDetector, time.Duration(config.AnomalyDetector.HistoryTTL)*time.Second, time.Duration(config.AnomalyDetector.CleanupTimeTicker)*time.Second)
 	anomalyDetector.Start(ctx)
-	lancacheRoute := lancache.NewLancacheRoute(ctx, storageService, targetService, proxyRoute, anomalyDetector)
+
+	lancacheRoute := lancache.NewLancacheRoute(ctx, config, storageService, targetService, proxyRoute, anomalyDetector)
 
 	route := route.NewRoute()
 	route.AddRoute(lancacheRoute)
@@ -81,12 +83,14 @@ func main() {
 		log.Error("Listener failed", "error", serveErr)
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
+	ctx, _ = context.WithTimeout(context.Background(), 10*time.Second)
 	server.Shutdown(ctx)
-	storageCleaner.Stop()
-	anomalyDetector.Stop()
-	storageCache.EvictAll(ctx)
 
+	cancel()
+
+	// LancacheDownload has pools and first need their storages release, after StorageCache save it
+	// better use wg
+	time.After(2 * time.Second)
+
+	storageCache.EvictAll(ctx)
 }
