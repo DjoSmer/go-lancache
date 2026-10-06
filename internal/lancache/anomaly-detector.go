@@ -4,6 +4,7 @@ package lancache
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -12,16 +13,16 @@ import (
 	"go-lancache/internal/config"
 )
 
-type access struct {
-	ip    string
-	items []history
+type HistoryKey struct {
+	Ip   string
+	Path string
 }
 
 type history struct {
 	Live         bool
-	Key          string
 	Times        int
 	LastFinished time.Time
+	RangeTimes   map[[32]byte]int
 }
 
 type AnomalyDetector struct {
@@ -29,7 +30,7 @@ type AnomalyDetector struct {
 	historyTTL        time.Duration
 	cleanupTimeTicker time.Duration
 	mu                sync.Mutex
-	data              map[string]map[string]*history // ip -> key -> history
+	data              map[HistoryKey]*history
 	stopWorker        chan struct{}
 }
 
@@ -38,7 +39,7 @@ func NewAnomalyDetector(config config.AnomalyDetectorConfig, historyTTL time.Dur
 		config:            config,
 		historyTTL:        historyTTL,
 		cleanupTimeTicker: cleanupTimeTicker,
-		data:              make(map[string]map[string]*history, 255),
+		data:              make(map[HistoryKey]*history, 10000),
 		stopWorker:        make(chan struct{}),
 	}
 
@@ -53,47 +54,60 @@ func (d *AnomalyDetector) Stop() {
 	close(d.stopWorker)
 }
 
-func (d *AnomalyDetector) Detect(ip, key string) bool {
+func (d *AnomalyDetector) Detect(ip, path, rangeHeader string) bool {
 	log := d.log("Detect")
+
+	key := HistoryKey{
+		Ip:   ip,
+		Path: path,
+	}
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	_, ok := d.data[ip]
-	if !ok {
-		d.data[ip] = make(map[string]*history, 3000)
-	}
-
-	h, ok := d.data[ip][key]
+	h, ok := d.data[key]
 	if !ok {
 		h = &history{
-			Key:          key,
 			Times:        0,
 			Live:         true,
 			LastFinished: time.Now(),
+			RangeTimes:   make(map[[32]byte]int, 100),
 		}
 	}
 
+	times := 0
 	h.Live = true
-	h.Times++
 
-	if h.Times > d.config.HistoryMax {
-		log.Debug(fmt.Sprintf("Anomaly - ip: %s key: %s", ip, key))
-		h = nil
-		delete(d.data[ip], key)
+	if rangeHeader == "" {
+		h.Times++
+		times = h.Times
+	} else {
+		rangeKey := hashRange(rangeHeader)
+		h.RangeTimes[rangeKey]++
+		times = h.RangeTimes[rangeKey]
+	}
+
+	if times > d.config.HistoryMax {
+		log.Debug("Find Anomaly", "ip", ip, "key", key, "range", rangeHeader)
+		delete(d.data, key)
 		return true
 	}
 
-	d.data[ip][key] = h
+	d.data[key] = h
 
 	return false
 }
 
-func (d *AnomalyDetector) Finish(ip, key string) {
+func (d *AnomalyDetector) Finish(ip, path string) {
+	key := HistoryKey{
+		Ip:   ip,
+		Path: path,
+	}
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	h, ok := d.data[ip][key]
+	h, ok := d.data[key]
 	if !ok {
 		return
 	}
@@ -108,42 +122,16 @@ func (d *AnomalyDetector) Size() int {
 	return len(d.data)
 }
 
-func (d *AnomalyDetector) GetAccessList() []access {
+func (d *AnomalyDetector) Get(ip, path string) (history, error) {
+	key := HistoryKey{
+		Ip:   ip,
+		Path: path,
+	}
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	accesses := make([]access, len(d.data))
-
-	x := 0
-	for ip, data := range d.data {
-		access := access{
-			ip:    ip,
-			items: make([]history, len(data)),
-		}
-
-		y := 0
-		for _, history := range data {
-			access.items[y] = *history
-			y++
-		}
-
-		accesses[x] = access
-		x++
-	}
-
-	return accesses
-}
-
-func (d *AnomalyDetector) Get(ip, key string) (history, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	_, ok := d.data[ip]
-	if !ok {
-		return history{}, fmt.Errorf("Ip: %s not found", ip)
-	}
-
-	h, ok := d.data[ip][key]
+	h, ok := d.data[key]
 	if !ok {
 		return history{}, fmt.Errorf("Key: %s not found", key)
 	}
@@ -163,16 +151,10 @@ func (d *AnomalyDetector) cleanupLoop(ctx context.Context) {
 
 			expireBefore := time.Now().Add(-d.historyTTL)
 
-			for ip, histories := range d.data {
-				for key, history := range histories {
-					if !history.Live && history.LastFinished.Before(expireBefore) {
-						log.Debug(fmt.Sprintf("Cleanup - ip: %s key: %s", ip, key))
-						delete(histories, key)
-					}
-				}
-
-				if len(histories) == 0 {
-					delete(d.data, ip)
+			for key, history := range d.data {
+				if !history.Live && history.LastFinished.Before(expireBefore) {
+					log.Debug("Cleanup", "key", key)
+					delete(d.data, key)
 				}
 			}
 
@@ -189,4 +171,15 @@ func (d *AnomalyDetector) cleanupLoop(ctx context.Context) {
 func (d *AnomalyDetector) log(name string) *slog.Logger {
 	op := "AnomalyDetector." + name
 	return slog.Default().With(slog.String("op", op))
+}
+
+func hashRange(value string) [32]byte {
+	h := sha256.New()
+
+	h.Write([]byte(value))
+
+	var result [32]byte
+	copy(result[:], h.Sum(nil))
+
+	return result
 }
