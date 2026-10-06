@@ -44,10 +44,11 @@ func NewStorageCleaner(repo StorageCleanupRepository, config config.StorageConfi
 
 	fmt.Println(fileTTL, maxSize, config)
 	return &StorageCleaner{
-		repo:    repo,
-		config:  config,
-		fileTTL: fileTTL,
-		maxSize: maxSize,
+		repo:       repo,
+		config:     config,
+		fileTTL:    fileTTL,
+		maxSize:    maxSize,
+		stopWorker: make(chan struct{}),
 	}
 }
 

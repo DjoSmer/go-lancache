@@ -97,14 +97,11 @@ func (ss *StorageService) Lock(storage *Storage) (*Storage, bool) {
 }
 
 func (ss *StorageService) Release(ctx context.Context, storage *Storage, err error) *Storage {
-	storage = ss.cache.Update(storage.BasePath, func(storage *Storage) *Storage {
-		if err == nil {
-			storage.SetStatus(StorageStatusSuccess)
-		} else {
-			storage.SetStatus(StorageStatusError)
-		}
-		return storage
-	})
+	if err == nil {
+		storage.SetStatus(StorageStatusSuccess)
+	} else {
+		storage.SetStatus(StorageStatusError)
+	}
 
 	ss.Save(ctx, *storage)
 	return storage

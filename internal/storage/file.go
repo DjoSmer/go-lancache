@@ -50,7 +50,7 @@ func NewStorageFile(s *Storage, storagePath string) (*storageFile, error) {
 		}
 	}
 
-	flag := os.O_RDONLY | os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	flag := os.O_RDWR | os.O_CREATE
 	file, err := os.OpenFile(filepath, flag, 0666)
 	if err != nil {
 		return nil, fmt.Errorf("Open file %s: %w", filepath, err)
