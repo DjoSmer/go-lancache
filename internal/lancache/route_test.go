@@ -20,6 +20,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var cfg = config.Config{
+	DownloadConfig: config.DownloadConfig{
+		NumberOfWorkers: 10,
+	},
+}
+
 var globalMockStorage = &mockStorageService{
 	lock: true,
 	storage: &storage.Storage{
@@ -35,8 +41,8 @@ var globalMockTarget = &mockTargetService{
 	},
 }
 var globalMockProxy = &mockProxyRoute{}
-var globalAd = lancache.NewAnomalyDetector(config.AnomalyDetectorConfig{}, 1*time.Second, 3*time.Second)
-var globalRoute = lancache.NewLancacheRoute(context.Background(), globalMockStorage, globalMockTarget, globalMockProxy, globalAd)
+var globalAd = lancache.NewAnomalyDetector(cfg.AnomalyDetector, 1*time.Second, 3*time.Second)
+var globalRoute = lancache.NewLancacheRoute(context.Background(), cfg, globalMockStorage, globalMockTarget, globalMockProxy, globalAd)
 
 func TestLancacheRoute_Handler_NotGetMethod(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "http://example.com", nil)
@@ -70,7 +76,7 @@ func TestLancacheRoute_Handler_NotTarget(t *testing.T) {
 		target:      nil,
 	}
 
-	route := lancache.NewLancacheRoute(context.Background(), globalMockStorage, mockTarget, globalMockProxy, globalAd)
+	route := lancache.NewLancacheRoute(context.Background(), cfg, globalMockStorage, mockTarget, globalMockProxy, globalAd)
 
 	result := route.Handler(rec, req)
 	assert.False(t, result)
@@ -100,7 +106,7 @@ func TestLancacheRoute_Handler_ServeFileFromStorage(t *testing.T) {
 	}
 	assert.False(t, mockStorage.lockCalled)
 
-	route := lancache.NewLancacheRoute(context.Background(), mockStorage, globalMockTarget, globalMockProxy, globalAd)
+	route := lancache.NewLancacheRoute(context.Background(), cfg, mockStorage, globalMockTarget, globalMockProxy, globalAd)
 	result := route.Handler(rec, req)
 	assert.True(t, result)
 	assert.Equal(t, globalMockTarget.getterCount, nextGetterCount)
@@ -133,7 +139,7 @@ func TestLancacheRoute_Handler_NotAvailable(t *testing.T) {
 		},
 	}
 
-	route := lancache.NewLancacheRoute(context.Background(), mockStorage, globalMockTarget, mockProxy, globalAd)
+	route := lancache.NewLancacheRoute(context.Background(), cfg, mockStorage, globalMockTarget, mockProxy, globalAd)
 
 	result := route.Handler(rec, req)
 	assert.False(t, result)
@@ -161,7 +167,7 @@ func TestLancacheRoute_Handler_CannotLock(t *testing.T) {
 		},
 	}
 
-	route := lancache.NewLancacheRoute(context.Background(), mockStorage, globalMockTarget, mockProxy, globalAd)
+	route := lancache.NewLancacheRoute(context.Background(), cfg, mockStorage, globalMockTarget, mockProxy, globalAd)
 
 	result := route.Handler(rec, req)
 	assert.False(t, result)
@@ -198,7 +204,7 @@ func TestLancacheRoute_Handler_UploadFullFileWithHeaderRange(t *testing.T) {
 		},
 	}
 
-	route := lancache.NewLancacheRoute(context.Background(), mockStorage, globalMockTarget, mockProxy, globalAd)
+	route := lancache.NewLancacheRoute(context.Background(), cfg, mockStorage, globalMockTarget, mockProxy, globalAd)
 	result := route.Handler(rec, req)
 	require.False(t, result)
 	assert.True(t, mockStorage.lockCalled)
@@ -254,7 +260,7 @@ func TestLancacheRoute_Handler_Upload(t *testing.T) {
 		},
 	}
 
-	route := lancache.NewLancacheRoute(context.Background(), mockStorage, globalMockTarget, mockProxy, globalAd)
+	route := lancache.NewLancacheRoute(context.Background(), cfg, mockStorage, globalMockTarget, mockProxy, globalAd)
 	result := route.Handler(rec, req)
 	assert.True(t, mockStorage.lockCalled)
 	assert.True(t, mockStorage.releaseCalled)
@@ -281,8 +287,8 @@ func TestLancacheRoute_Handler_Upload(t *testing.T) {
 }
 
 func init() {
-	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+	log := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{
+		Level: slog.LevelError,
 	}))
 
 	slog.SetDefault(log)

@@ -16,6 +16,7 @@ type Config struct {
 	Storage         StorageConfig
 	Target          TargetConfig
 	AnomalyDetector AnomalyDetectorConfig
+	DownloadConfig  DownloadConfig
 }
 
 type Log struct {
@@ -64,6 +65,9 @@ type AnomalyDetectorConfig struct {
 
 	// if a history > HistoryMax at HistoryTTL it's anomaly
 	HistoryMax int `env:"ANOMALY_DETECTOR_MAX" env-default:"3"`
+}
+type DownloadConfig struct {
+	NumberOfWorkers int `env:"DOWNLOAD_NUMBER_OF_WORKERS" env-default:"10"`
 }
 
 type TargetConfig struct {

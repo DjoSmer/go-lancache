@@ -3,12 +3,12 @@ package lancache
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
+	"go-lancache/internal/config"
 	"go-lancache/internal/storage"
 )
 
@@ -18,10 +18,12 @@ type LancacheRoute struct {
 	targetService  targetService
 	proxyRoute     proxyRoute
 	detector       *AnomalyDetector
+	download       *LancacheDownload
 }
 
 func NewLancacheRoute(
 	ctx context.Context,
+	config config.Config,
 	ss storageService,
 	ts targetService,
 	pr proxyRoute,
@@ -33,6 +35,7 @@ func NewLancacheRoute(
 		targetService:  ts,
 		proxyRoute:     pr,
 		detector:       detector,
+		download:       NewLancacheDownload(ctx, config.DownloadConfig.NumberOfWorkers, ss),
 	}
 }
 
@@ -63,8 +66,7 @@ func (r *LancacheRoute) Handler(w http.ResponseWriter, req *http.Request) bool {
 
 	log = log.With(slog.String("BasePath", storage.BasePath))
 
-	serveOk := r.tryServeFileFromStorage(w, req, storage)
-	if serveOk {
+	if r.tryServeFileFromStorage(w, req, storage) {
 		return true
 	}
 
@@ -80,42 +82,47 @@ func (r *LancacheRoute) Handler(w http.ResponseWriter, req *http.Request) bool {
 		return false
 	}
 
+	if req.Header.Get("Range") != "" {
+		r.download.Add(req, storage)
+		return false
+	}
+
 	file, err := r.storageService.GetFile(storage)
 	if err != nil {
 		log.Error("Storage GetFile In", "error", err.Error())
 		return false
 	}
-	if req.Header.Get("Range") != "" {
-		go func() {
-			defer file.Close()
-
-			n, err := downloadFile(r.ctx, file, req)
-			r.storageService.Release(ctx, storage, err)
-			log.Debug(fmt.Sprintf("Downloaded %v bytes", n))
-		}()
-		return false
-	}
-	defer file.Close()
 
 	lw := NewLancacheResponseWriter(file, w)
 	defer func() {
-		r.storageService.Release(ctx, storage, err)
+		closeErr := file.Close()
+
+		err = lw.GetStorageError()
+
+		if err == nil && ctx.Err() != nil {
+			err = ctx.Err()
+		}
+
+		if closeErr != nil && err == nil {
+			err = closeErr
+		}
+
+		if err != nil {
+			log.Error("Storage file was not saved", "error", err)
+
+			fileErr := file.Remove()
+			if fileErr != nil {
+				log.Error("Cannot remove storage file", "error", fileErr)
+			}
+		}
+
+		r.storageService.Release(r.ctx, storage, err)
 	}()
 
 	if !r.proxyRoute.Handler(lw, req) {
 		err = fmt.Errorf("Proxy route return false")
+		log.Error(err.Error())
 		return false
-	}
-
-	err = lw.GetStorageError()
-	if err != nil {
-		log.Error("File write error", "error", err.Error())
-
-		file.Close()
-		err := file.Remove()
-		if err != nil {
-			log.Error("Cannot remove storage file", "error", err.Error())
-		}
 	}
 
 	return true
@@ -135,7 +142,7 @@ func (r *LancacheRoute) tryServeFileFromStorage(w http.ResponseWriter, req *http
 	}
 
 	if storage.IsSuccess() {
-		isAnomaly := r.detector.Detect(remoteIp, storage.BasePath)
+		isAnomaly := r.detector.Detect(remoteIp, storage.BasePath, req.Header.Get("Range"))
 		if isAnomaly {
 			storage = r.storageService.MarkAsCorrupted(storage)
 		}
@@ -174,31 +181,4 @@ func (r *LancacheRoute) tryServeFileFromStorage(w http.ResponseWriter, req *http
 func (r *LancacheRoute) log(name string) *slog.Logger {
 	op := "LancacheRoute." + name
 	return slog.Default().With(slog.String("op", op))
-}
-
-func downloadFile(ctx context.Context, file storage.StorageFile, req *http.Request) (int64, error) {
-	log := slog.Default().With(slog.String("op", "downloadFile")).With("url", req.URL.String())
-
-	outReq := req.Clone(ctx)
-	outReq.Header.Del("Range")
-
-	var n int64
-	var err error
-	var res *http.Response
-
-	log.Debug("Send request")
-
-	res, err = http.DefaultClient.Do(outReq)
-	if err != nil {
-		return n, err
-	}
-
-	log.Debug("Start download")
-
-	n, err = io.Copy(file, res.Body)
-	if err != nil {
-		return n, err
-	}
-
-	return n, nil
 }
