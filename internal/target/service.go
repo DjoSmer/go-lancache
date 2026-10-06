@@ -18,6 +18,7 @@ var defaultNoTargetUrls = []string{
 	"\\.(json|exe|css|cur|js|jpe?g|gif|ico|png|svg|webp|webm|html|woff|woff2|xml)",
 	"(authrootstl.cab|pinrulesstl.cab|disallowedcertstl.cab)$",
 	"(releaselisting_.*|.version$)",
+	".+/$", ".+/\\?",
 }
 
 type TargetServiceRepository interface {

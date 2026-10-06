@@ -41,6 +41,7 @@ func TestGet_CheckDefaultNoTargetUrls(t *testing.T) {
 		"/game/service.json", "/game/img.jpeg?t=ret", "/game/service.xml?q=1&w=rrrr",
 		"/service/authrootstl.cab", "/work/food/pinrulesstl.cab", "/wg/service_disallowedcertstl.cab",
 		"/service/releaselisting_ver2/file.data", "/service/patch_version",
+		"/channels/public/rccontent/theme/", "/channels/public/rccontent/theme/?test=test",
 	}
 
 	for _, url := range urls {
