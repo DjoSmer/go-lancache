@@ -50,6 +50,10 @@ func (ps *ProxyRoute) Handler(w http.ResponseWriter, req *http.Request) bool {
 	requestId := ps.requestSeq.Add(1)
 	w.Header().Add("X-Request-Id", strconv.FormatInt(requestId, 10))
 
+	if w.Header().Get("X-Lancache-Status") == "" {
+		w.Header().Add("X-Lancache-Status", "Proxy")
+	}
+
 	proxy := &httputil.ReverseProxy{
 		Transport: ps.Transport,
 		Rewrite:   func(pr *httputil.ProxyRequest) {},
