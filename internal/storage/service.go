@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"log/slog"
 	"time"
@@ -58,7 +57,7 @@ func (ss *StorageService) Get(ctx context.Context, basePath string) (*Storage, e
 
 	storage, err := ss.repo.FindByBasePath(ctx, basePath)
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
+		if !errors.Is(err, ErrStorageNotFound) {
 			log.Error("Storage repo return error", "error", err.Error())
 		}
 		return nil, err
