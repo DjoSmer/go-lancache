@@ -15,7 +15,7 @@ var ErrTargetsEmpty = errors.New("Targets are nil")
 var ErrSkipTarget = errors.New("Skip Target")
 
 var defaultNoTargetUrls = []string{
-	"\\.(json|exe|css|cur|js|jpe?g|gif|ico|png|svg|webp|webm|html|woff|woff2|xml)",
+	"\\.(json|exe|css|cur|js|jpe?g|gif|ico|png|svg|webp|webm|html|woff|woff2|xml|txt)",
 	"(authrootstl.cab|pinrulesstl.cab|disallowedcertstl.cab)$",
 	"(releaselisting_.*|.version$)",
 	".+/$", ".+/\\?",
@@ -75,17 +75,18 @@ func (s *TargetService) Get(cxt context.Context, domain string, userAgent string
 	return Target{}, ErrSkipTarget
 }
 
-func (s *TargetService) Load() {
+func (s *TargetService) Load() error {
 	log := s.log("Load")
 
 	targets, err := s.repo.GetAll(context.Background())
 	if err != nil {
-		log.Error("Cannot load target: " + err.Error())
-		return
+		return fmt.Errorf("Cannot load target: %w", err)
 	}
 
 	log.Debug(fmt.Sprintf("Loaded %d targets", len(targets)))
 	s.targets = targets
+
+	return nil
 }
 
 func (s *TargetService) Import() {}
