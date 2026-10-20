@@ -29,7 +29,7 @@ func New(config config.PostgresConfig) *sql.DB {
 		panic(err)
 	}
 
-	log.Debug("DB Successfully connected!")
+	log.Info("DB Successfully connected!")
 
 	return db
 }

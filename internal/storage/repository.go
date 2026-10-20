@@ -41,8 +41,8 @@ func (r *StorageRepository) FindByBasePath(ctx context.Context, basePath string)
 
 func (r *StorageRepository) GetExpired(ctx context.Context, fileTTL time.Duration) ([]Storage, error) {
 	storages := make([]Storage, 0, 100)
-
-	rows, err := r.db.QueryContext(ctx, `SELECT "basePath" FROM storage where "updatedAt" <= $1`, time.Now().Truncate(fileTTL))
+	//TODO what about Limit?
+	rows, err := r.db.QueryContext(ctx, `SELECT "basePath" FROM storage WHERE "updatedAt" <= $1 ORDER by "updatedAt"`, time.Now().Truncate(fileTTL))
 	if err != nil {
 		return nil, fmt.Errorf("%s.getExpired query: %w", op, err)
 	}
@@ -70,7 +70,7 @@ func (r *StorageRepository) GetExpired(ctx context.Context, fileTTL time.Duratio
 func (r *StorageRepository) GetOldest(ctx context.Context, limit int) ([]Storage, error) {
 	storages := make([]Storage, 0, limit)
 
-	rows, err := r.db.QueryContext(ctx, `SELECT "basePath" FROM storage Order by "updatedAt" ask Limit $1`, limit)
+	rows, err := r.db.QueryContext(ctx, `SELECT "basePath" FROM storage Order by "updatedAt" Limit $1`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("%s.getOldest query: %w", op, err)
 	}
