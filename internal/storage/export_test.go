@@ -57,9 +57,3 @@ func (c *StorageCache) ValidateList() error {
 
 	return nil
 }
-
-func (c *StorageCache) Size() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return len(c.items)
-}

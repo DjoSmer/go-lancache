@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type cacheNode struct {
@@ -23,6 +25,7 @@ type StorageCache struct {
 	last       *cacheNode
 	ttl        time.Duration
 	stopWorker chan struct{}
+	metrics    *cacheMetrics
 	OnEvict    func(Storage)
 }
 
@@ -34,6 +37,8 @@ func NewStorageCache(ttl time.Duration) *StorageCache {
 		ttl:        ttl,
 		stopWorker: make(chan struct{}),
 	}
+
+	cache.metrics = newCacheMetrics(cache)
 
 	return cache
 }
@@ -65,10 +70,12 @@ func (c *StorageCache) Get(key string) (Storage, bool) {
 	item, ok := c.items[key]
 	if ok {
 		c.upItem(item)
+		c.metrics.results.WithLabelValues("hit").Inc()
 		log.Debug("Get: " + key)
 		return item.value, ok
 	}
 
+	c.metrics.results.WithLabelValues("miss").Inc()
 	return Storage{}, ok
 }
 
@@ -188,6 +195,8 @@ func (c *StorageCache) startNodeWorker(ctx context.Context) {
 			}
 
 			delete(c.items, node.Key)
+			c.metrics.evictions.Inc()
+
 		}
 
 		c.mu.Unlock()
@@ -204,6 +213,12 @@ func (c *StorageCache) Start(ctx context.Context) {
 
 func (c *StorageCache) Stop() {
 	close(c.stopWorker)
+}
+
+func (c *StorageCache) Size() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.items)
 }
 
 func (c *StorageCache) upItem(item *cacheNode) {
@@ -247,4 +262,50 @@ func (c *StorageCache) upItem(item *cacheNode) {
 func (c *StorageCache) log(name string) *slog.Logger {
 	op := "StorageCache." + name
 	return slog.Default().With(slog.String("op", op))
+}
+
+type cacheMetrics struct {
+	entries   prometheus.CounterFunc
+	results   *prometheus.CounterVec // hit, miss
+	evictions prometheus.Counter
+}
+
+func newCacheMetrics(c *StorageCache) *cacheMetrics {
+	m := &cacheMetrics{
+		entries: prometheus.NewGaugeFunc(
+			prometheus.GaugeOpts{
+				Namespace: "lc",
+				Subsystem: "storage",
+				Name:      "cache_size",
+			},
+			func() float64 {
+				return float64(c.Size())
+			},
+		),
+		results: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "lc",
+				Subsystem: "storage",
+				Name:      "cache_result",
+				Help:      "Total number of result by hit or miss.",
+			},
+			[]string{"result"},
+		),
+		evictions: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Namespace: "lc",
+				Subsystem: "storage",
+				Name:      "cache_evictions_total",
+				Help:      "Total number of evict run.",
+			},
+		),
+	}
+
+	prometheus.MustRegister(
+		m.entries,
+		m.results,
+		m.evictions,
+	)
+
+	return m
 }

@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"fmt"
-	"go-lancache/internal/config"
 	"io/fs"
 	"log/slog"
 	"path/filepath"
@@ -11,6 +10,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"go-lancache/internal/config"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 var regexpFileTTL = regexp.MustCompile(`^([0-9.]*)([mwd])$`)
@@ -23,12 +26,12 @@ type StorageCleanupRepository interface {
 }
 
 type StorageCleaner struct {
-	repo    StorageCleanupRepository
-	config  config.StorageConfig
-	fileTTL time.Duration
-	// size in kb
+	repo       StorageCleanupRepository
+	config     config.StorageConfig
+	fileTTL    time.Duration
 	maxSize    int64
 	stopWorker chan struct{}
+	metrics    *cleanerMetrics
 }
 
 func NewStorageCleaner(repo StorageCleanupRepository, config config.StorageConfig) *StorageCleaner {
@@ -49,10 +52,10 @@ func NewStorageCleaner(repo StorageCleanupRepository, config config.StorageConfi
 		fileTTL:    fileTTL,
 		maxSize:    maxSize,
 		stopWorker: make(chan struct{}),
+		metrics:    newCleanerMetrics(),
 	}
 }
 
-// Return size in KB
 func (c *StorageCleaner) CalculateStorageSize() (int64, error) {
 	log := c.log("CalculateStorageSize")
 
@@ -65,7 +68,7 @@ func (c *StorageCleaner) CalculateStorageSize() (int64, error) {
 		if !d.IsDir() {
 			info, err := d.Info()
 			if err != nil {
-				log.Warn("Cannot get file info: " + path)
+				log.Warn("Cannot get file info", "path", path)
 				return nil
 			}
 			size += info.Size()
@@ -78,9 +81,10 @@ func (c *StorageCleaner) CalculateStorageSize() (int64, error) {
 		return 0, err
 	}
 
+	c.metrics.storageBytes.Set(float64(size))
 	log.Info(fmt.Sprintf("Storage Size: %v / %v", sizeFormat(size), c.config.DiskSize))
 
-	return size / 1024, nil
+	return size, nil
 }
 
 func (c *StorageCleaner) cleanup(ctx context.Context) {
@@ -92,14 +96,21 @@ func (c *StorageCleaner) cleanup(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
+			c.metrics.cleanupRuns.Inc()
+
 			storages, err := c.repo.GetExpired(ctx, c.fileTTL)
 			if err != nil {
-				log.Error(err.Error())
+				log.Error("repo.GetExpired", "error", err)
+				c.metrics.cleanupErrors.Inc()
 			} else {
 				c.remove(ctx, storages)
 			}
 
-			c.cleanupOldest(ctx)
+			err = c.cleanupOldest(ctx)
+			if err != nil {
+				log.Error(err.Error())
+				c.metrics.cleanupErrors.Inc()
+			}
 
 		case <-c.stopWorker:
 			return
@@ -109,51 +120,49 @@ func (c *StorageCleaner) cleanup(ctx context.Context) {
 	}
 }
 
-func (c *StorageCleaner) cleanupOldest(ctx context.Context) {
+func (c *StorageCleaner) cleanupOldest(ctx context.Context) error {
 	log := c.log("cleanupOldest")
 	currentSize, err := c.CalculateStorageSize()
 	if err != nil {
 		log.Error(err.Error())
-		return
-	}
-	if currentSize < c.maxSize {
-		return
+		return err
 	}
 
-	var size int64
+	if currentSize < c.maxSize {
+		return nil
+	}
+
+	var deletedBytes int64
 	maxSize := int64(float64(c.maxSize) * 0.9)
 	for range 100 {
 		storages, err := c.repo.GetOldest(ctx, 1000)
 		if err != nil {
-			log.Error(err.Error())
-		} else {
-			c.remove(ctx, storages)
-		}
-
-		size, err = c.CalculateStorageSize()
-		if err != nil {
-			log.Error(err.Error())
 			break
 		}
 
-		if size < maxSize || ctx.Err() != nil {
+		deletedBytes += c.remove(ctx, storages)
+		if currentSize-deletedBytes < maxSize || ctx.Err() != nil {
 			break
 		}
 	}
 
-	if size > 0 {
-		log.Info("Cleanup oldest result", "currentSize", size, "deleteSize", currentSize-size, "maxSize", maxSize)
+	if deletedBytes > 0 {
+		log.Info("Cleanup oldest result", "currentSize", sizeFormat(currentSize), "deletedSize", sizeFormat(deletedBytes), "maxSize", maxSize)
 	}
+
+	return err
 }
 
-func (c *StorageCleaner) remove(ctx context.Context, storages []Storage) {
+func (c *StorageCleaner) remove(ctx context.Context, storages []Storage) int64 {
 	log := c.log("remove")
 	if len(storages) == 0 {
-		return
+		return 0
 	}
 
-	numberOfDeleted := 0
+	var deletedFiles int
+	var deletedBytes int64
 	toDelete := make([]Storage, 0, 100)
+
 	for _, storage := range storages {
 		storageFile, err := NewStorageFile(&storage, c.config.Path)
 		if err != nil {
@@ -161,8 +170,14 @@ func (c *StorageCleaner) remove(ctx context.Context, storages []Storage) {
 			continue
 		}
 
+		st, _ := storageFile.Stat()
+		if st != nil {
+			deletedBytes += st.Size()
+		}
+
 		err = storageFile.Remove()
 		if err != nil {
+			c.metrics.deletedErrors.Inc()
 			log.Error("Cannot remove file", "BasePath", storage.BasePath, "error", err.Error())
 			continue
 		}
@@ -172,11 +187,15 @@ func (c *StorageCleaner) remove(ctx context.Context, storages []Storage) {
 		if len(toDelete) >= 100 {
 			c.repo.DeleteMany(ctx, toDelete)
 			toDelete = toDelete[:0]
-			numberOfDeleted += 100
+			deletedFiles += 100
 		}
 	}
 
-	log.Info(fmt.Sprintf("Deleted %d / %d files", numberOfDeleted, len(storages)))
+	c.metrics.deletedBytes.Add(float64(deletedBytes))
+	c.metrics.deletedFiles.Add(float64(deletedFiles))
+	log.Info(fmt.Sprintf("Deleted %d / %d files = %v", deletedFiles, len(storages), sizeFormat(deletedBytes)))
+
+	return deletedBytes
 }
 
 func (c *StorageCleaner) Start(ctx context.Context) {
@@ -215,7 +234,6 @@ func parseFileTTL(baseFileTTL string) (time.Duration, error) {
 	return duration * time.Duration(value), nil
 }
 
-// Return size in KB
 func parseDiskSize(baseDiskSize string) (int64, error) {
 	match := regexpDiskSize.FindStringSubmatch(baseDiskSize)
 	if len(match) == 0 {
@@ -227,15 +245,17 @@ func parseDiskSize(baseDiskSize string) (int64, error) {
 		return 0, fmt.Errorf("Parse Disk Size: %w", err)
 	}
 
-	scale := 1024 // MB
+	scale := 1024 // KB
 	unit := strings.ToUpper(match[2])
 	switch unit {
 	case "T":
-		scale = scale * scale * scale // TB
+		scale = scale * scale * scale * scale // TB
 	case "G":
-		scale = scale * scale // GB
+		scale = scale * scale * scale // GB
+	case "M":
+		scale = scale * scale // MB
 	}
-	fmt.Println(value, scale, match)
+
 	return int64(value * scale), nil
 }
 
@@ -250,4 +270,73 @@ func sizeFormat(size int64) string {
 	}
 
 	return strconv.FormatInt(size, 10)
+}
+
+type cleanerMetrics struct {
+	storageBytes prometheus.Gauge
+
+	deletedFiles  prometheus.Counter
+	deletedErrors prometheus.Counter
+	deletedBytes  prometheus.Counter
+
+	cleanupRuns   prometheus.Counter
+	cleanupErrors prometheus.Counter
+}
+
+func newCleanerMetrics() *cleanerMetrics {
+	m := &cleanerMetrics{
+		storageBytes: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Namespace: "lc",
+				Subsystem: "storage",
+				Name:      "cleaner_storage_bytes_total",
+			},
+		),
+		deletedFiles: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Namespace: "lc",
+				Subsystem: "storage",
+				Name:      "cleaner_deleted_files_total",
+			},
+		),
+		deletedErrors: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Namespace: "lc",
+				Subsystem: "storage",
+				Name:      "cleaner_deleted_errors_total",
+			},
+		),
+		deletedBytes: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Namespace: "lc",
+				Subsystem: "storage",
+				Name:      "cleaner_deleted_bytes_total",
+			},
+		),
+		cleanupRuns: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Namespace: "lc",
+				Subsystem: "storage",
+				Name:      "cleaner_cleanup_runs_total",
+			},
+		),
+		cleanupErrors: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Namespace: "lc",
+				Subsystem: "storage",
+				Name:      "cleaner_cleanup_errors_total",
+			},
+		),
+	}
+
+	prometheus.MustRegister(
+		m.storageBytes,
+		m.deletedFiles,
+		m.deletedErrors,
+		m.deletedBytes,
+		m.cleanupRuns,
+		m.cleanupErrors,
+	)
+
+	return m
 }

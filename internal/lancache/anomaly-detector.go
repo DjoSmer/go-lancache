@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"go-lancache/internal/config"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 type HistoryKey struct {
@@ -32,6 +34,7 @@ type AnomalyDetector struct {
 	mu                sync.Mutex
 	data              map[HistoryKey]*history
 	stopWorker        chan struct{}
+	metrics           *anomalyDetectorMetrics
 }
 
 func NewAnomalyDetector(config config.AnomalyDetectorConfig, historyTTL time.Duration, cleanupTimeTicker time.Duration) *AnomalyDetector {
@@ -42,6 +45,8 @@ func NewAnomalyDetector(config config.AnomalyDetectorConfig, historyTTL time.Dur
 		data:              make(map[HistoryKey]*history, 10000),
 		stopWorker:        make(chan struct{}),
 	}
+
+	detector.metrics = newAnomalyDetectorMetrics(detector)
 
 	return detector
 }
@@ -56,6 +61,8 @@ func (d *AnomalyDetector) Stop() {
 
 func (d *AnomalyDetector) Detect(ip, path, rangeHeader string) bool {
 	log := d.log("Detect")
+
+	d.metrics.checks.Inc()
 
 	key := HistoryKey{
 		Ip:   ip,
@@ -88,8 +95,13 @@ func (d *AnomalyDetector) Detect(ip, path, rangeHeader string) bool {
 	}
 
 	if times > d.config.HistoryMax {
-		log.Debug("Find Anomaly", "ip", ip, "key", key, "range", rangeHeader)
+		log.Info("Find Anomaly", "ip", ip, "key", key, "range", rangeHeader)
 		delete(d.data, key)
+		if rangeHeader == "" {
+			d.metrics.detections.Inc()
+		} else {
+			d.metrics.rangeDetections.Inc()
+		}
 		return true
 	}
 
@@ -139,6 +151,12 @@ func (d *AnomalyDetector) Get(ip, path string) (history, error) {
 	return *h, nil
 }
 
+func (d *AnomalyDetector) ActiveHistories() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.data)
+}
+
 func (d *AnomalyDetector) cleanupLoop(ctx context.Context) {
 	log := d.log("cleanupLoop")
 	ticker := time.NewTicker(d.cleanupTimeTicker)
@@ -146,7 +164,6 @@ func (d *AnomalyDetector) cleanupLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			log.Debug("Cleanup - tick")
 			d.mu.Lock()
 
 			expireBefore := time.Now().Add(-d.historyTTL)
@@ -182,4 +199,58 @@ func hashRange(value string) [32]byte {
 	copy(result[:], h.Sum(nil))
 
 	return result
+}
+
+type anomalyDetectorMetrics struct {
+	activeHistories prometheus.CounterFunc
+	checks          prometheus.Counter
+	detections      prometheus.Counter
+	rangeDetections prometheus.Counter
+}
+
+func newAnomalyDetectorMetrics(detector *AnomalyDetector) *anomalyDetectorMetrics {
+	m := &anomalyDetectorMetrics{
+		activeHistories: prometheus.NewGaugeFunc(
+			prometheus.GaugeOpts{
+				Namespace: "lc",
+				Subsystem: "lancache",
+				Name:      "anomaly_active_histories",
+				Help:      "Number of active anomaly histories.",
+			},
+			func() float64 {
+				return float64(detector.ActiveHistories())
+			},
+		),
+		checks: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Namespace: "lc",
+				Subsystem: "lancache",
+				Name:      "anomaly_checks_total",
+				Help:      "Total number of checks.",
+			},
+		),
+		detections: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Namespace: "lc",
+				Subsystem: "lancache",
+				Name:      "anomaly_detections_total",
+				Help:      "Total number of detections.",
+			},
+		),
+		rangeDetections: prometheus.NewCounter(
+			prometheus.CounterOpts{
+				Namespace: "lc",
+				Subsystem: "lancache",
+				Name:      "anomaly_range_detections_total",
+				Help:      "Total number of range detections.",
+			},
+		),
+	}
+
+	prometheus.MustRegister(
+		m.checks,
+		m.detections,
+		m.rangeDetections,
+	)
+	return m
 }
