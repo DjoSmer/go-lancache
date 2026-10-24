@@ -276,7 +276,7 @@ func newCacheMetrics(c *StorageCache) *cacheMetrics {
 			prometheus.GaugeOpts{
 				Namespace: "lc",
 				Subsystem: "storage",
-				Name:      "cache_size",
+				Name:      "cache_entries",
 			},
 			func() float64 {
 				return float64(c.Size())

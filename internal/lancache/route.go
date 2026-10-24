@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -71,17 +70,11 @@ func (r *LancacheRoute) Handler(w http.ResponseWriter, req *http.Request) bool {
 
 	log = log.With(slog.String("BasePath", storage.BasePath))
 
-	if req.Header.Get("Range") != "" {
-		r.metrics.rangeRequests.Inc()
-	} else {
-		r.metrics.requests.Inc()
-	}
-
 	if r.tryServeFileFromStorage(w, req, storage) {
 		return true
 	}
 
-	w.Header().Add("X-Lancache-Status", "MISS")
+	w.Header().Set("X-Lancache-Status", "MISS")
 	w.Header().Add("X-Storage-Status", string(storage.GetStatus()))
 
 	if !storage.IsAvailable() {
@@ -100,7 +93,7 @@ func (r *LancacheRoute) Handler(w http.ResponseWriter, req *http.Request) bool {
 
 	file, err := r.storageService.GetFile(storage)
 	if err != nil {
-		log.Error("Storage GetFile In", "error", err.Error())
+		log.Error("Storage GetFile In", "error", err)
 		return false
 	}
 
@@ -143,10 +136,6 @@ func (r *LancacheRoute) Handler(w http.ResponseWriter, req *http.Request) bool {
 		return false
 	}
 
-	contentLength, err := strconv.Atoi(w.Header().Get("Content-Length"))
-	if err == nil && contentLength > 0 {
-		r.metrics.responseBytes.WithLabelValues("upstream").Add(float64(contentLength))
-	}
 	r.metrics.miss.WithLabelValues("success").Inc()
 
 	return true
@@ -176,7 +165,7 @@ func (r *LancacheRoute) tryServeFileFromStorage(w http.ResponseWriter, req *http
 
 	file, err := r.storageService.GetFile(storage)
 	if err != nil {
-		log.Error("Storage GetFile Out", "error", err.Error())
+		log.Error("Storage GetFile Out", "error", err)
 		r.metrics.hit.WithLabelValues("error").Inc()
 		return false
 	}
@@ -205,11 +194,6 @@ func (r *LancacheRoute) tryServeFileFromStorage(w http.ResponseWriter, req *http
 	r.storageService.IncreaseDownloadCount(storage)
 	r.detector.Finish(remoteIp, storage.BasePath)
 
-	contentLength, err := strconv.Atoi(w.Header().Get("Content-Length"))
-	if err == nil && contentLength > 0 {
-		r.metrics.responseBytes.WithLabelValues("storage").Add(float64(contentLength))
-	}
-
 	return true
 }
 
@@ -219,32 +203,12 @@ func (r *LancacheRoute) log(name string) *slog.Logger {
 }
 
 type routeMetrics struct {
-	requests      prometheus.Counter
-	rangeRequests prometheus.Counter
-	hit           *prometheus.CounterVec //success, error, disconnect
-	miss          *prometheus.CounterVec //success, error, disconnect
-
-	responseBytes *prometheus.CounterVec //storage, upstream
+	hit  *prometheus.CounterVec //success, error, disconnect
+	miss *prometheus.CounterVec //success, error, disconnect
 }
 
 func newRouteMetrics() *routeMetrics {
 	m := &routeMetrics{
-		requests: prometheus.NewCounter(
-			prometheus.CounterOpts{
-				Namespace: "lc",
-				Subsystem: "lancache",
-				Name:      "route_requests_total",
-				Help:      "Total number of lancache requests.",
-			},
-		),
-		rangeRequests: prometheus.NewCounter(
-			prometheus.CounterOpts{
-				Namespace: "lc",
-				Subsystem: "lancache",
-				Name:      "route_range_requests_total",
-				Help:      "Total number of lancache range requests.",
-			},
-		),
 		hit: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "lc",
@@ -263,23 +227,11 @@ func newRouteMetrics() *routeMetrics {
 			},
 			[]string{"result"},
 		),
-		responseBytes: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Namespace: "lc",
-				Subsystem: "lancache",
-				Name:      "route_response_bytes_total",
-				Help:      "Total number of download bytes attempts by storage and upstream.",
-			},
-			[]string{"source"},
-		),
 	}
 
 	prometheus.MustRegister(
-		m.requests,
-		m.rangeRequests,
 		m.hit,
 		m.miss,
-		m.responseBytes,
 	)
 
 	return m

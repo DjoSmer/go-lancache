@@ -45,14 +45,16 @@ func NewStorageCleaner(repo StorageCleanupRepository, config config.StorageConfi
 		panic(err)
 	}
 
-	fmt.Println(fileTTL, maxSize, config)
+	metrics := newCleanerMetrics()
+	metrics.storageLimitBytes.Set(float64(maxSize))
+
 	return &StorageCleaner{
 		repo:       repo,
 		config:     config,
 		fileTTL:    fileTTL,
 		maxSize:    maxSize,
 		stopWorker: make(chan struct{}),
-		metrics:    newCleanerMetrics(),
+		metrics:    metrics,
 	}
 }
 
@@ -273,7 +275,8 @@ func sizeFormat(size int64) string {
 }
 
 type cleanerMetrics struct {
-	storageBytes prometheus.Gauge
+	storageBytes      prometheus.Gauge
+	storageLimitBytes prometheus.Gauge
 
 	deletedFiles  prometheus.Counter
 	deletedErrors prometheus.Counter
@@ -289,7 +292,16 @@ func newCleanerMetrics() *cleanerMetrics {
 			prometheus.GaugeOpts{
 				Namespace: "lc",
 				Subsystem: "storage",
-				Name:      "cleaner_storage_bytes_total",
+				Name:      "bytes",
+				Help:      "Current storage size in bytes.",
+			},
+		),
+		storageLimitBytes: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Namespace: "lc",
+				Subsystem: "storage",
+				Name:      "limit_bytes",
+				Help:      "Maximum allowed storage size in bytes.",
 			},
 		),
 		deletedFiles: prometheus.NewCounter(
@@ -331,6 +343,7 @@ func newCleanerMetrics() *cleanerMetrics {
 
 	prometheus.MustRegister(
 		m.storageBytes,
+		m.storageLimitBytes,
 		m.deletedFiles,
 		m.deletedErrors,
 		m.deletedBytes,

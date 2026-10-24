@@ -95,7 +95,7 @@ func (d *AnomalyDetector) Detect(ip, path, rangeHeader string) bool {
 	}
 
 	if times > d.config.HistoryMax {
-		log.Info("Find Anomaly", "ip", ip, "key", key, "range", rangeHeader)
+		log.Warn("Find Anomaly", "ip", ip, "key", key, "range", rangeHeader)
 		delete(d.data, key)
 		if rangeHeader == "" {
 			d.metrics.detections.Inc()
@@ -248,6 +248,7 @@ func newAnomalyDetectorMetrics(detector *AnomalyDetector) *anomalyDetectorMetric
 	}
 
 	prometheus.MustRegister(
+		m.activeHistories,
 		m.checks,
 		m.detections,
 		m.rangeDetections,

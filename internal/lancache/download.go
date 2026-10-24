@@ -73,8 +73,8 @@ func (d *LancacheDownload) worker(workerId int) {
 func (d *LancacheDownload) downloadFile(ctx context.Context, storage *storage.Storage, req *http.Request, workerId int) (int64, error) {
 	log := d.log("downloadFile").With("url", req.URL.String()).With("workerId", workerId)
 
-	d.metrics.activeDownloads.Inc()
-	defer d.metrics.activeDownloads.Dec()
+	d.metrics.downloadsInProgress.Inc()
+	defer d.metrics.downloadsInProgress.Dec()
 
 	var n int64
 	var res *http.Response
@@ -134,12 +134,12 @@ func (d *LancacheDownload) log(name string) *slog.Logger {
 }
 
 type downloadMetrics struct {
-	queueSize        prometheus.GaugeFunc
-	activeDownloads  prometheus.Gauge
-	started          prometheus.Counter
-	results          *prometheus.CounterVec
-	bytesDownloaded  prometheus.Counter
-	downloadDuration prometheus.Histogram
+	queueSize           prometheus.GaugeFunc
+	downloadsInProgress prometheus.Gauge
+	started             prometheus.Counter
+	results             *prometheus.CounterVec
+	bytesDownloaded     prometheus.Counter
+	downloadDuration    prometheus.Histogram
 }
 
 func newDownloadMetrics(d *LancacheDownload) *downloadMetrics {
@@ -155,11 +155,11 @@ func newDownloadMetrics(d *LancacheDownload) *downloadMetrics {
 				return float64(d.TaskCount())
 			},
 		),
-		activeDownloads: prometheus.NewGauge(
+		downloadsInProgress: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: "lc",
 				Subsystem: "lancache",
-				Name:      "downloads_active",
+				Name:      "downloads_in_progress",
 				Help:      "Number of active downloading.",
 			},
 		),
@@ -201,7 +201,7 @@ func newDownloadMetrics(d *LancacheDownload) *downloadMetrics {
 
 	prometheus.MustRegister(
 		m.queueSize,
-		m.activeDownloads,
+		m.downloadsInProgress,
 		m.started,
 		m.results,
 		m.bytesDownloaded,
