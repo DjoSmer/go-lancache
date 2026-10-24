@@ -21,8 +21,9 @@ type Config struct {
 
 type Log struct {
 	//DEBUG/INFO/WARN/ERROR
-	Level     string `env:"LOG_LEVEL" env-default:"INFO"`
-	AddSource bool   `env:"LOG_SOURCE" env-default:"false"`
+	Level       string `env:"LOG_LEVEL" env-default:"INFO"`
+	AddSource   bool   `env:"LOG_SOURCE" env-default:"false"`
+	DebugPrefix string `env:"LOG_DEBUG_PREFIX" env-default:"*"`
 }
 
 type ServerAddress struct {

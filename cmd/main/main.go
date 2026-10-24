@@ -16,6 +16,7 @@ import (
 	"go-lancache/internal/storage"
 	"go-lancache/internal/target"
 	"go-lancache/internal/webserver"
+	"go-lancache/pkg/flog"
 )
 
 func main() {
@@ -29,10 +30,13 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+	baseHandler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		AddSource: config.Log.AddSource,
 		Level:     level,
-	}))
+	})
+
+	filterHandler := flog.NewFilterHandler(baseHandler, config.Log.DebugPrefix)
+	log := slog.New(filterHandler)
 
 	log.Info("Lancache Running...")
 	slog.SetDefault(log)
@@ -40,10 +44,14 @@ func main() {
 	db := database.New(config.DBConfig)
 
 	targetRepository := target.NewTargetRepository(db)
-	targetService := target.NewTargetService(targetRepository, config.Target)
-	targetService.Load()
-
 	storageRepository := storage.NewStorageRepository(db)
+
+	targetService := target.NewTargetService(targetRepository, config.Target)
+	err = targetService.Load()
+	if err != nil {
+		panic(err)
+	}
+
 	storageCleaner := storage.NewStorageCleaner(storageRepository, config.Storage)
 	_, err = storageCleaner.CalculateStorageSize()
 	if err != nil {
@@ -52,14 +60,13 @@ func main() {
 	storageCleaner.Start(ctx)
 
 	storageCache := storage.NewStorageCache(time.Duration(config.Storage.CacheTTL) * time.Minute)
-	storageService := storage.NewStorageService(storageRepository, storageCache, config.Storage)
-
 	storageCache.OnEvict = func(s storage.Storage) {
 		// if ctx is cancel lancache can't save storage in cache
 		storageRepository.Save(context.TODO(), s)
 	}
 	storageCache.Start(ctx)
 
+	storageService := storage.NewStorageService(storageRepository, storageCache, config.Storage)
 	proxyRoute := proxy.NewProxyRoute()
 
 	anomalyDetector := lancache.NewAnomalyDetector(config.AnomalyDetector, time.Duration(config.AnomalyDetector.HistoryTTL)*time.Second, time.Duration(config.AnomalyDetector.CleanupTimeTicker)*time.Second)
@@ -83,9 +90,10 @@ func main() {
 		log.Error("Listener failed", "error", serveErr)
 	}
 
-	ctx, _ = context.WithTimeout(context.Background(), 10*time.Second)
-	server.Shutdown(ctx)
+	ctx, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel2()
 
+	server.Shutdown(ctx)
 	cancel()
 
 	// LancacheDownload has pools and first need their storages release, after StorageCache save it
